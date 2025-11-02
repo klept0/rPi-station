@@ -1,6 +1,3 @@
-Here's the updated README.md with comprehensive information about the WiFi service:
-
-```markdown
 # HUD35 Display System
 
 A Raspberry Pi-based display system that shows weather information and currently playing Spotify tracks on a 480x320 screen. Features automatic background switching based on weather conditions, animated album art, and touch screen controls.
@@ -280,10 +277,6 @@ hud35/
 - **Authentication failures**: Delete `.spotify_cache` and re-authenticate
 - **No track info**: Verify Spotify is playing and app has proper permissions
 ```
-
-The updated README now includes:
-- Clear section about the WiFi management service
-- Installation instructions for the optional WiFi service
 - Usage guide for connecting to and using the web interface
 - Service management commands
 - Dependencies specific to the WiFi service
