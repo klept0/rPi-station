@@ -598,7 +598,7 @@ def fetch_and_store_artist_image(sp, artist_id):
             with artist_image_lock: artist_image = None
             return
         headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers, timeout=5)
+        resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
         if 'image' not in resp.headers.get('content-type', '').lower(): raise ValueError("Not an image")
         img = Image.open(BytesIO(resp.content)).convert("RGBA")
@@ -693,7 +693,7 @@ def spotify_loop():
                 try:
                     if art_url:
                         headers = {'User-Agent': 'Mozilla/5.0'}
-                        resp = requests.get(art_url, headers=headers, timeout=5)
+                        resp = requests.get(art_url, headers=headers, timeout=10)
                         resp.raise_for_status()
                         img = Image.open(BytesIO(resp.content)).convert("RGB")
                         img.thumbnail((150, 150), Image.LANCZOS)
