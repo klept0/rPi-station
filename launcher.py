@@ -751,6 +751,11 @@ SETUP_HTML = """
                             <input type="checkbox" id="time_display" name="time_display" {% if config.settings.time_display %}checked{% endif %}>
                             <label for="time_display">Show time display</label>
                         </div>
+                        <div class="form-group">
+                            <label for="framebuffer_device">Framebuffer Device:</label>
+                            <input type="text" id="framebuffer_device" name="framebuffer_device" value="{{ config.settings.framebuffer_device }}" placeholder="/dev/fb1">
+                            <small>Path to framebuffer device (e.g., /dev/fb0, /dev/fb1)</small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1070,10 +1075,10 @@ MUSIC_STATS_HTML = """
                 <form method="GET" style="display: flex; gap: 10px; align-items: center;">
                     <label>Time Period:</label>
                     <select name="period" onchange="this.form.submit()">
-                        <option value="1day" {% if period == '1day' %}selected{% endif %}>Last 24 Hours</option>
-                        <option value="7days" {% if period == '7days' %}selected{% endif %}>Last 7 Days</option>
-                        <option value="30days" {% if period == '30days' %}selected{% endif %}>Last 30 Days</option>
-                        <option value="90days" {% if period == '90days' %}selected{% endif %}>Last 90 Days</option>
+                        <option value="1hour" {% if period == '1hour' %}selected{% endif %}>Last 1 Hour</option>
+                        <option value="12hours" {% if period == '12hours' %}selected{% endif %}>Last 12 Hours</option>
+                        <option value="24hours" {% if period == '24days' %}selected{% endif %}>Last 24 Hours</option>
+                        <option value="1week" {% if period == '1week' %}selected{% endif %}>Last 1 Week</option>
                         <option value="all" {% if period == 'all' %}selected{% endif %}>All Time</option>
                     </select>
                     <label>Max Items:</label>
@@ -1236,6 +1241,7 @@ def save_all_config():
     config["settings"]["use_gpsd"] = 'use_gpsd' in request.form
     config["settings"]["use_google_geo"] = 'use_google_geo' in request.form
     config["settings"]["time_display"] = 'time_display' in request.form
+    config["api_keys"]["framebuffer"] = request.form.get('framebuffer', '/dev/fb1')
     config["auto_start"] = {
         "auto_start_hud35": 'auto_start_hud35' in request.form,
         "auto_start_neonwifi": 'auto_start_neonwifi' in request.form,
@@ -1616,7 +1622,7 @@ def music_stats():
     current_theme = ui_config.get("theme", "dark")
     
     # Get time period from request
-    period = request.args.get('period', '7days')
+    period = request.args.get('period', '1hour')
     try:
         lines = int(request.args.get('lines', 1000))
     except:
@@ -1699,22 +1705,22 @@ def log_song_play(song_info):
         logger = logging.getLogger('Launcher')
         logger.error(f"Error logging song play: {e}")
 
-def load_song_data(period='7days'):
+def load_song_data(period='1hour'):
     if not os.path.exists('songs.toml'):
         return []
     now = datetime.now()
-    if period == '1day':
-        threshold = now - timedelta(days=1)
-    elif period == '7days':
+    if period == '1hour':
+        threshold = now - timedelta(hours=1)
+    elif period == '12hours':
+        threshold = now - timedelta(hours=12)
+    elif period == '24hours':
+        threshold = now - timedelta(hours=24)
+    elif period == '1week':
         threshold = now - timedelta(days=7)
-    elif period == '30days':
-        threshold = now - timedelta(days=30)
-    elif period == '90days':
-        threshold = now - timedelta(days=90)
     elif period == 'all':
         threshold = datetime.min
     else:
-        threshold = now - timedelta(days=7)
+        threshold = now - timedelta(hours=1)
     songs_data = []
     try:
         with open('songs.toml', 'r') as f:

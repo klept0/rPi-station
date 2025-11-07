@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import time, requests, json, evdev, spotipy, colorsys, datetime, os, subprocess, toml, random, sys
+import time, requests, json, evdev, spotipy, colorsys, datetime, os, subprocess, toml, random, sys, copy
 import numpy as np
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
@@ -71,7 +71,7 @@ def load_config(path="config.toml"):
     try:
         with open(path, 'r') as f:
             loaded_config = toml.load(f)
-        merged_config = DEFAULT_CONFIG.copy()
+        merged_config = copy.deepcopy(DEFAULT_CONFIG)
         def merge_dicts(default, user):
             result = default.copy()
             for key, value in user.items():
