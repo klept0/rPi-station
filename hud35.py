@@ -7,7 +7,7 @@ from threading import Thread, Event, RLock
 from spotipy.oauth2 import SpotifyOAuth
 
 sys.stdout.reconfigure(line_buffering=True) 
-FB_DEVICE = "/dev/fb1"
+
 SCREEN_WIDTH = 480
 SCREEN_HEIGHT = 320
 UPDATE_INTERVAL_WEATHER = 3600
@@ -43,6 +43,7 @@ DEFAULT_CONFIG = {
         "redirect_uri": "http://127.0.0.1:5000"
     },
     "settings": {
+        "framebuffer": "/dev/fb1",
         "start_screen": "weather",
         "fallback_city": "",
         "use_gpsd": True,
@@ -66,12 +67,28 @@ def load_config(path="config.toml"):
     if not os.path.exists(path):
         with open(path, 'w') as f:
             toml.dump(DEFAULT_CONFIG, f)
-        return DEFAULT_CONFIG
+        return DEFAULT_CONFIG.copy()
     try:
         with open(path, 'r') as f:
-            return toml.load(f)
-    except Exception:
-        return DEFAULT_CONFIG
+            loaded_config = toml.load(f)
+        merged_config = DEFAULT_CONFIG.copy()
+        def merge_dicts(default, user):
+            result = default.copy()
+            for key, value in user.items():
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = merge_dicts(result[key], value)
+                else:
+                    result[key] = value
+            return result
+        merged_config = merge_dicts(merged_config, loaded_config)
+        with open(path, 'w') as f:
+            toml.dump(merged_config, f)
+        return merged_config
+    except Exception as e:
+        print(f"Error loading config: {e}, using defaults")
+        with open(path, 'w') as f:
+            toml.dump(DEFAULT_CONFIG, f)
+        return DEFAULT_CONFIG.copy()
 
 config = load_config()
 LARGE_FONT = ImageFont.truetype(config["fonts"]["large_font_path"], config["fonts"]["large_font_size"])
@@ -90,6 +107,7 @@ FALLBACK_CITY = config["settings"]["fallback_city"]
 USE_GPSD = config["settings"]["use_gpsd"]
 USE_GOOGLE_GEO = config["settings"]["use_google_geo"]
 TIME_DISPLAY = config["settings"]["time_display"]
+FRAMEBUFFER = config["settings"]["framebuffer"]
 GAMMA = 1.5
 MIN_DISPLAY_INTERVAL = 0.001
 TEXT_METRICS = {}
@@ -235,7 +253,7 @@ def display_image_on_framebuffer(image):
     output = np.empty((SCREEN_HEIGHT, SCREEN_WIDTH, 2), dtype=np.uint8)
     output[:, :, 0] = rgb565 & 0xFF
     output[:, :, 1] = (rgb565 >> 8) & 0xFF
-    with open(FB_DEVICE, "wb") as fb:
+    with open(FRAMEBUFFER, "wb") as fb:
         fb.write(output.tobytes())
 
 def get_location_via_gpsd(timeout=5, debug=True):
@@ -1015,7 +1033,7 @@ def update_display():
     display_image_on_framebuffer(img)
 
 def clear_framebuffer():
-    with open(FB_DEVICE, "wb") as f:
+    with open(FRAMEBUFFER, "wb") as f:
         f.write(b'\x00\x00' * SCREEN_AREA)
 
 def main():
