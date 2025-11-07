@@ -753,7 +753,7 @@ SETUP_HTML = """
                         </div>
                         <div class="form-group">
                             <label for="framebuffer_device">Framebuffer Device:</label>
-                            <input type="text" id="framebuffer_device" name="framebuffer_device" value="{{ config.settings.framebuffer_device }}" placeholder="/dev/fb1">
+                            <input type="text" id="framebuffer" name="framebuffer" value="{{ config.settings.framebuffer }}" placeholder="e.g., /dev/fb1">
                             <small>Path to framebuffer device (e.g., /dev/fb0, /dev/fb1)</small>
                         </div>
                     </div>
@@ -1241,7 +1241,7 @@ def save_all_config():
     config["settings"]["use_gpsd"] = 'use_gpsd' in request.form
     config["settings"]["use_google_geo"] = 'use_google_geo' in request.form
     config["settings"]["time_display"] = 'time_display' in request.form
-    config["api_keys"]["framebuffer"] = request.form.get('framebuffer', '/dev/fb1')
+    config["settings"]["framebuffer"] = request.form.get('framebuffer', '/dev/fb1')
     config["auto_start"] = {
         "auto_start_hud35": 'auto_start_hud35' in request.form,
         "auto_start_neonwifi": 'auto_start_neonwifi' in request.form,
