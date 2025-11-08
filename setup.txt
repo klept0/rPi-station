@@ -1,5 +1,9 @@
-sudo apt update
-sudo apt install git
+sudo apt install python3-pip python3-evdev python3-numpy python3-pil
+sudo pip3 install spotipy --break-system-packages
+(for wifi system) sudo apt install python3-flask
+
+
+for 3.5" tft
 git clone https://github.com/Shinigamy19/RaspberryPi3bplus-3.5inch-displayA-ILI9486-MPI3501-XPT2046
 mv RaspberryPi3bplus-3.5inch-displayA-ILI9486-MPI3501-XPT2046 LCD-show
 cd LCD-show
@@ -7,6 +11,5 @@ chmod +x LCD35-show
 sudo ./LCD35-show
 (optional) sudo bash ./rotate.sh 180
 
-sudo apt install python3-pip python3-evdev python3-numpy python3-pil
-sudo pip3 install spotipy --break-system-packages
-(for wifi system) sudo apt install python3-flask
+for display hat mini
+sudo pip3 install st7789 --break-system-packages
