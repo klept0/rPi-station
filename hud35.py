@@ -1182,11 +1182,11 @@ def handle_buttons():
                     current_time = time.time()
                     if current_time - button_last_press[button] > DEBOUNCE_TIME:
                         button_last_press[button] = current_time
-                        if button ==BUTTON_A:
+                        if button == BUTTON_A:
                             START_SCREEN = "spotify"
                             update_display()
                         elif button == BUTTON_B:
-                            START_SCREEN == "weather"
+                            START_SCREEN = "weather"
                             update_display()
                         elif button == BUTTON_X:
                             global art_pos, artist_pos
