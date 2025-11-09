@@ -15,10 +15,10 @@ try:
     HAS_GPIO = True
 except ImportError:
     HAS_GPIO = False
+HAS_WAVESHARE_EPD = False
 
 sys.stdout.reconfigure(line_buffering=True) 
 
-HAS_WAVESHARE_EPD = False
 SCREEN_WIDTH = 480
 SCREEN_HEIGHT = 320
 UPDATE_INTERVAL_WEATHER = 3600
@@ -97,6 +97,9 @@ st7789_display = None
 waveshare_epd = None
 waveshare_base_image = None
 partial_refresh_count = 0
+epd2in13_V3 = None
+epdconfig = None
+waveshare_epd = None
 
 def load_config(path="config.toml"):
     if not os.path.exists(path):
@@ -152,13 +155,6 @@ GAMMA = 1.5
 MIN_DISPLAY_INTERVAL = 0.001
 TEXT_METRICS = {}
 DEBOUNCE_TIME = 0.3
-if config["display"]["type"] == "waveshare_epd":
-    try:
-        from waveshare_epd import epd2in13_V3
-        import waveshare_epd.epdconfig as epdconfig
-        HAS_WAVESHARE_EPD = True
-    except ImportError:
-        HAS_WAVESHARE_EPD = False
 
 button_last_press = {BUTTON_A: 0, BUTTON_B: 0, BUTTON_X: 0, BUTTON_Y: 0}
 _gamma_r = np.array([int(((i / 255.0) ** (1 / GAMMA)) * 31 + 0.5) for i in range(256)], dtype=np.uint8)
@@ -1372,10 +1368,12 @@ def draw_waveshare_simple(weather_info, spotify_track):
     return img
 
 def init_waveshare_display():
-    global waveshare_epd, waveshare_base_image, partial_refresh_count
-    if not HAS_WAVESHARE_EPD:
-        return None
+    global waveshare_epd, waveshare_base_image, partial_refresh_count, HAS_WAVESHARE_EPD, epd2in13_V3, epdconfig
     try:
+        if not HAS_WAVESHARE_EPD:
+            from waveshare_epd import epd2in13_V3
+            import waveshare_epd.epdconfig as epdconfig
+            HAS_WAVESHARE_EPD = True
         waveshare_epd = epd2in13_V3.EPD()
         waveshare_epd.init()
         waveshare_epd.Clear(0xFF)
@@ -1388,7 +1386,7 @@ def init_waveshare_display():
         return None
 
 def display_image_on_waveshare(image):
-    global waveshare_epd, waveshare_base_image, partial_refresh_count
+    global waveshare_epd, waveshare_base_image, partial_refresh_count, epd2in13_V3, epdconfig
     with waveshare_lock:
         if waveshare_epd is None:
             if not init_waveshare_display():
@@ -1396,13 +1394,9 @@ def display_image_on_waveshare(image):
         try:
             if image.size != (250, 122):
                 image = image.resize((250, 122), Image.LANCZOS)
-            if waveshare_base_image is None:
-                waveshare_epd.display(waveshare_epd.getbuffer(image))
-                waveshare_base_image = image.copy()
-                partial_refresh_count = 0
-                return
-            waveshare_epd.displayPartial(waveshare_epd.getbuffer(image))
+            waveshare_epd.display(waveshare_epd.getbuffer(image))
             waveshare_base_image = image.copy()
+            partial_refresh_count = 0
         except Exception as e:
             print(f"Waveshare display error: {e}")
             try:
@@ -1410,8 +1404,8 @@ def display_image_on_waveshare(image):
                 waveshare_epd.display(waveshare_epd.getbuffer(image))
                 waveshare_base_image = image.copy()
                 partial_refresh_count = 0
-            except:
-                print("Failed to reset waveshare display")
+            except Exception as e2:
+                print(f"Failed to reset waveshare display: {e2}")
 
 def display_image_on_framebuffer(image):
     global last_display_time
@@ -1493,6 +1487,7 @@ def main():
     Thread(target=handle_buttons, daemon=True).start()
     Thread(target=animate_images, daemon=True).start()
     Thread(target=animate_text_scroll, daemon=True).start()
+    #Thread(target=capture_frames_background, daemon=True).start()
     for _ in range(30):
         if weather_info is not None or spotify_track is not None:
             break
@@ -1506,5 +1501,6 @@ def main():
     finally:
         exit_event.set()
         clear_framebuffer()
+
 if __name__ == "__main__":
     main()
