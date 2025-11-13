@@ -125,6 +125,7 @@ spotify_layout_cache = None
 scrolling_text_cache = {}
 last_display_time = 0
 waveshare_lock = RLock()
+file_write_lock = threading.Lock()
 
 def load_config(path="config.toml"):
     if not os.path.exists(path):
@@ -859,32 +860,82 @@ def fetch_and_store_artist_image(sp, artist_id):
 def write_current_track_state(track_data):
     if not ENABLE_CURRENT_TRACK_DISPLAY:
         return
-    try:
-        state_data = {}
-        if track_data:
-            state_data['current_track'] = {
-                'title': track_data.get('title', 'Unknown Track'),
-                'artists': track_data.get('artists', 'Unknown Artist'),
-                'album': track_data.get('album', 'Unknown Album'),
-                'current_position': track_data.get('current_position', 0),
-                'duration': track_data.get('duration', 0),
-                'is_playing': track_data.get('is_playing', False),
-                'timestamp': time.time()
+    with file_write_lock:
+        try:
+            state_data = {}
+            if track_data:
+                state_data['current_track'] = {
+                    'title': track_data.get('title', 'Unknown Track') or "Unknown Track",
+                    'artists': track_data.get('artists', 'Unknown Artist') or "Unknown Artist",
+                    'album': track_data.get('album', 'Unknown Album') or "Unknown Album",
+                    'current_position': int(track_data.get('current_position', 0)),
+                    'duration': int(track_data.get('duration', 0)),
+                    'is_playing': bool(track_data.get('is_playing', False)),
+                    'timestamp': time.time()
+                }
+            else:
+                state_data['current_track'] = {
+                    'title': 'No track playing',
+                    'artists': '',
+                    'album': '',
+                    'current_position': 0,
+                    'duration': 0,
+                    'is_playing': False,
+                    'timestamp': time.time()
+                }
+            for key, value in state_data['current_track'].items():
+                if value is None:
+                    state_data['current_track'][key] = ""
+                elif isinstance(value, str) and '\n' in value:
+                    state_data['current_track'][key] = value.replace('\n', ' ')
+            temp_path = '.current_track_state.toml.tmp'
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                toml.dump(state_data, f)
+            if os.path.exists(temp_path):
+                try:
+                    with open(temp_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:
+                            toml.loads(content)
+                            os.replace(temp_path, '.current_track_state.toml')
+                            return
+                except Exception as e:
+                    print(f"TOML validation failed, not updating file: {e}")
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+            fallback_data = {
+                'current_track': {
+                    'title': 'Error writing state',
+                    'artists': '',
+                    'album': '',
+                    'current_position': 0,
+                    'duration': 0,
+                    'is_playing': False,
+                    'timestamp': time.time()
+                }
             }
-        else:
-            state_data['current_track'] = {
-                'title': 'No track playing',
-                'artists': '',
-                'album': '',
-                'current_position': 0,
-                'duration': 0,
-                'is_playing': False,
-                'timestamp': time.time()
-            }
-        with open('.current_track_state.toml', 'w') as f:
-            toml.dump(state_data, f)
-    except Exception as e:
-        print(f"Error writing track state: {e}")
+            with open('.current_track_state.toml', 'w', encoding='utf-8') as f:
+                toml.dump(fallback_data, f)
+        except Exception as e:
+            print(f"Critical error writing track state: {e}")
+            try:
+                basic_data = {
+                    'current_track': {
+                        'title': 'Write Error',
+                        'artists': '',
+                        'album': '',
+                        'current_position': 0,
+                        'duration': 0,
+                        'is_playing': False,
+                        'timestamp': time.time()
+                    }
+                }
+                with open('.current_track_state.toml', 'w', encoding='utf-8') as f:
+                    toml.dump(basic_data, f)
+            except:
+                pass
 
 def initialize_spotify_client():
     if os.path.exists(".spotify_cache"):
@@ -1031,6 +1082,8 @@ def spotify_loop():
     global START_SCREEN, spotify_track, sp, album_art_image, scrolling_text_cache
     last_token_check = time.time()
     token_check_interval = 60
+    last_successful_write = 0
+    write_interval = 1
     if os.path.exists(".spotify_cache"):
         try:
             with open(".spotify_cache", "r") as f:
@@ -1090,7 +1143,9 @@ def spotify_loop():
                     spotify_track = None
                     with art_lock: 
                         album_art_image = None
-                    write_current_track_state(None)
+                    if current_time - last_successful_write >= write_interval:
+                        write_current_track_state(None)
+                        last_successful_write = current_time
                     update_spotify_layout(None)
                     if START_SCREEN == "spotify":
                         update_display()
@@ -1103,20 +1158,25 @@ def spotify_loop():
             album_str = item['album']['name'] if item.get('album') else "Unknown Album"
             current_position = track.get('progress_ms', 0) // 1000
             duration = item.get('duration_ms', 0) // 1000
+            is_playing = track.get('is_playing', False)
             new_track = {
                 "title": item.get('name', "Unknown Track"),
                 "artists": artist_str,
                 "album": album_str,
                 "current_position": current_position,
                 "duration": duration,
-                "is_playing": track.get('is_playing', False)
+                "is_playing": is_playing
             }
+            track_changed = current_id != last_track_id or spotify_track is None
             art_url = None
             if item.get('album') and item['album'].get('images'):
                 art_url = item['album']['images'][0]['url']
-            if current_id != last_track_id or spotify_track is None or art_url != last_art_url:
+            art_changed = art_url != last_art_url
+            if track_changed or art_changed or spotify_track is None:
                 spotify_track = new_track
-                write_current_track_state(spotify_track)
+                if current_time - last_successful_write >= write_interval:
+                    write_current_track_state(spotify_track)
+                    last_successful_write = current_time
                 try:
                     if art_url:
                         headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'}
@@ -1173,13 +1233,22 @@ def spotify_loop():
                 if START_SCREEN == "spotify":
                     update_display()
             else:
-                old_position = spotify_track.get('current_position', 0) if spotify_track else 0
-                new_position = track.get('progress_ms', 0) // 1000
-                spotify_track['current_position'] = new_position
-                spotify_track['is_playing'] = track.get('is_playing', False)
-                position_diff = abs(new_position - old_position)
-                if position_diff >= 5 or spotify_track['is_playing'] != track.get('is_playing', False):
+                old_playing_state = spotify_track.get('is_playing', False) if spotify_track else False
+                spotify_track['current_position'] = current_position
+                spotify_track['is_playing'] = is_playing
+                playing_state_changed = is_playing != old_playing_state
+                should_write = False
+                if playing_state_changed:
+                    should_write = True
+                elif is_playing and current_time - last_successful_write >= write_interval:
+                    should_write = True
+                elif not is_playing and current_time - last_successful_write >= 5:
+                    should_write = True
+                if START_SCREEN == "spotify":
+                    update_display()
+                if should_write:
                     write_current_track_state(spotify_track)
+                    last_successful_write = current_time
         except spotipy.exceptions.SpotifyException as e:
             if e.http_status == 401:
                 print("🔑 Spotify token expired, requiring re-authentication")
@@ -1198,11 +1267,6 @@ def spotify_loop():
         except Exception as e:
             print(f"❌ Unexpected Spotify error: {e}")
             time.sleep(10)
-        if spotify_track and spotify_track.get('is_playing', False):
-            current_time = time.time()
-            if not hasattr(spotify_loop, 'last_track_write') or current_time - spotify_loop.last_track_write > 2:
-                write_current_track_state(spotify_track)
-                spotify_loop.last_track_write = current_time
         time.sleep(SPOTIFY_UPDATE_INTERVAL)
 
 def weather_loop():
