@@ -255,9 +255,6 @@ def start_hud35():
     if is_hud35_running():
         return False, "HUD35 is already running"
     try:
-        last_logged_song = get_last_logged_song()
-        if last_logged_song:
-            logger.info(f"📝 Last logged song: {last_logged_song}")
         hud35_process = subprocess.Popen(
             [sys.executable, 'hud35.py'],
             stdout=subprocess.PIPE,
@@ -996,16 +993,9 @@ MUSIC_STATS_HTML = """
             <h1>🎵 Music Statistics</h1>
             <div class="controls">
                 <form method="GET" style="display: flex; gap: 10px; align-items: center;">
-                    <label>Time Period:</label>
-                    <select name="period">
-                        <option value="1hour" {% if period == '1hour' %}selected{% endif %}>Last 1 Hour</option>
-                        <option value="12hours" {% if period == '12hours' %}selected{% endif %}>Last 12 Hours</option>
-                        <option value="24hours" {% if period == '24days' %}selected{% endif %}>Last 24 Hours</option>
-                        <option value="1week" {% if period == '1week' %}selected{% endif %}>Last 1 Week</option>
-                        <option value="all" {% if period == 'all' %}selected{% endif %}>All Time</option>
-                    </select>
                     <label>Max Items:</label>
                     <input type="number" name="lines" value="{{ lines }}" min="10" max="1000" style="width: 80px;">
+                    <button type="submit">Update</button>
                 </form>
                 <button onclick="location.href='/'">← Back to Launcher</button>
                 <button onclick="clearSongLogs()">🗑️ Clear Song Logs</button>
@@ -1110,37 +1100,8 @@ MUSIC_STATS_HTML = """
             if (eventSource) {
                 eventSource.close();
             }
-            eventSource = new EventSource(`/stream/music_stats?period=${currentPeriod}&lines=${currentLines}`);
-            eventSource.onmessage = function(event) {
-                const stats = JSON.parse(event.data);
-                const currentHash = JSON.stringify({
-                    total: stats.total_plays,
-                    songs: stats.unique_songs,
-                    artists: stats.unique_artists
-                });
-                document.querySelector('.stat-card:nth-child(1) .stat-number').textContent = stats.total_plays;
-                document.querySelector('.stat-card:nth-child(2) .stat-number').textContent = stats.unique_songs;
-                document.querySelector('.stat-card:nth-child(3) .stat-number').textContent = stats.unique_artists;
-                if (currentHash !== lastStatsHash) {
-                    refreshCharts(false);
-                    lastStatsHash = currentHash;
-                }
-            };
-            eventSource.onerror = function(event) {
-                console.error('Stats SSE error:', event);
-                setTimeout(connect, 5000);
-            };
         }
         connect();
-        document.querySelector('select[name="period"]').addEventListener('change', function() {
-            currentPeriod = this.value;
-            lastStatsHash = null;
-            const url = new URL(window.location);
-            url.searchParams.set('period', currentPeriod);
-            window.history.pushState({}, '', url);
-            connect();
-            refreshCharts(true);
-        });
         document.querySelector('input[name="lines"]').addEventListener('change', function() {
             currentLines = this.value;
             lastStatsHash = null;
@@ -1598,7 +1559,6 @@ def view_logs():
                     <form id="linesForm" method="GET" style="display: flex; gap: 10px; align-items: center;">
                         <label for="lines">Lines to show:</label>
                         <input type="number" id="lines" name="lines" value="{lines}" min="10" max="10000" style="width: 80px;">
-                        <button type="submit">Update</button>
                     </form>
                     <button onclick="toggleLive()" id="liveBtn">▶️ Start Live</button>
                     <button onclick="location.href='/'">← Back to Launcher</button>
@@ -1720,39 +1680,41 @@ def clear_logs():
 
 @app.route('/music_stats_data')
 def music_stats_data():
-    period = request.args.get('period', '1hour')
     try:
         lines = int(request.args.get('lines', 1000))
     except:
         lines = 1000
-    songs_data = load_song_data(period)
-    song_stats, artist_stats = generate_music_stats(songs_data, lines)
+    song_counts = load_song_counts()
+    song_stats, artist_stats = generate_music_stats(song_counts, lines)
     song_chart_data = generate_chart_data(song_stats, 'Songs')
     artist_chart_data = generate_chart_data(artist_stats, 'Artists')
     song_chart_items = list(zip(song_chart_data['labels'], song_chart_data['data'], song_chart_data['colors']))
     artist_chart_items = list(zip(artist_chart_data['labels'], artist_chart_data['data'], artist_chart_data['colors']))
+    
+    total_plays = sum(song_counts.values())
+    unique_songs = len(song_counts)
+    unique_artists = len(artist_stats)
     return {
         'song_chart_items': song_chart_items,
         'artist_chart_items': artist_chart_items,
-        'total_plays': len(songs_data),
-        'unique_songs': len(song_stats),
-        'unique_artists': len(artist_stats)
+        'total_plays': total_plays,
+        'unique_songs': unique_songs,
+        'unique_artists': unique_artists
     }
 
 @app.route('/stream/music_stats')
 def stream_music_stats():
-    period = request.args.get('period', '1hour')
     try:
         lines = int(request.args.get('lines', 1000))
     except:
         lines = 1000
     def generate():
         while True:
-            songs_data = load_song_data(period)
-            song_stats, artist_stats = generate_music_stats(songs_data, lines)
+            song_counts = load_song_counts()
+            song_stats, artist_stats = generate_music_stats(song_counts, lines)
             stats_data = {
-                'total_plays': len(songs_data),
-                'unique_songs': len(song_stats), 
+                'total_plays': sum(song_counts.values()),
+                'unique_songs': len(song_counts),
                 'unique_artists': len(artist_stats),
                 'timestamp': datetime.now().isoformat()
             }
@@ -1764,26 +1726,27 @@ def stream_music_stats():
 def music_stats():
     config = load_config()
     ui_config = config.get("ui", {"theme": "dark"})
-    period = request.args.get('period', '1hour')
     try:
         lines = int(request.args.get('lines', 1000))
     except:
         lines = 1000
-    songs_data = load_song_data(period)
-    song_stats, artist_stats = generate_music_stats(songs_data, lines)
+    song_counts = load_song_counts()
+    song_stats, artist_stats = generate_music_stats(song_counts, lines)
     song_chart_data = generate_chart_data(song_stats, 'Songs')
     artist_chart_data = generate_chart_data(artist_stats, 'Artists')
     song_chart_items = list(zip(song_chart_data['labels'], song_chart_data['data'], song_chart_data['colors']))
     artist_chart_items = list(zip(artist_chart_data['labels'], artist_chart_data['data'], artist_chart_data['colors']))
+    total_plays = sum(song_counts.values())
+    unique_songs = len(song_counts)
+    unique_artists = len(artist_stats)
     enable_current_track = config["settings"].get("enable_current_track_display", True)
     return render_template_string(MUSIC_STATS_HTML, 
                                 song_chart_items=song_chart_items,
                                 artist_chart_items=artist_chart_items,
-                                period=period,
                                 lines=lines,
-                                total_plays=len(songs_data),
-                                unique_songs=len(song_stats),
-                                unique_artists=len(artist_stats),
+                                total_plays=total_plays,
+                                unique_songs=unique_songs,
+                                unique_artists=unique_artists,
                                 enable_current_track_display=enable_current_track,
                                 ui_config=ui_config)
     
@@ -1820,9 +1783,10 @@ def api_current_track():
 @app.route('/clear_song_logs', methods=['POST'])
 def clear_song_logs():
     try:
-        with open('songs.toml', 'w') as f:
-            f.write('# Song play history\n')
+        with open('song_counts.toml', 'w') as f:
+            f.write('# Song play counts\n')
             f.write('# Generated by HUD35 Launcher\n\n')
+            f.write('[song_counts]\n')
         return 'Song logs cleared', 200
     except Exception as e:
         return f'Error clearing song logs: {str(e)}', 500
@@ -2587,7 +2551,6 @@ def log_current_track_state():
             artists_list = artists_data
         else:
             artists_list = [a.strip() for a in artists_data.split(',')] if artists_data else []
-        
         song_info = {
             'song': track_data.get('title', ''),
             'artists': artists_list,
@@ -2652,61 +2615,55 @@ def get_current_track():
             'has_track': False
         }
 
-def load_song_data(period='1hour'):
-    if not os.path.exists('songs.toml'):
-        return []
-    now = datetime.now()
-    if period == '1hour':
-        threshold = now - timedelta(hours=1)
-    elif period == '12hours':
-        threshold = now - timedelta(hours=12)
-    elif period == '24hours':
-        threshold = now - timedelta(hours=24)
-    elif period == '1week':
-        threshold = now - timedelta(days=7)
-    elif period == 'all':
-        threshold = datetime.min
-    else:
-        threshold = now - timedelta(hours=1)
-    songs_data = []
+def load_song_counts():
+    if not os.path.exists('song_counts.toml'):
+        return {}
     try:
-        with open('songs.toml', 'r') as f:
-            content = f.read()
-        data = toml.loads(content)
-        plays = data.get('play', [])
-        for play in plays:
-            try:
-                entry_time = datetime.strptime(play['timestamp'], '%Y-%m-%d %H:%M:%S')
-                if entry_time >= threshold:
-                    songs_data.append(play)
-            except (KeyError, ValueError):
-                continue
+        with open('song_counts.toml', 'r') as f:
+            data = toml.load(f)
+        return data.get('song_counts', {})
     except Exception as e:
         logger = logging.getLogger('Launcher')
-        logger.error(f"Error loading song data: {e}")
-    return songs_data
+        logger.error(f"Error loading song counts: {e}")
+        return {}
 
-def generate_music_stats(songs_data, max_items=1000):
-    song_counter = Counter()
+def log_song_play(song_info):
+    global last_logged_song
+    logger = logging.getLogger('Launcher')
+    current_song = song_info.get('full_track', '').strip()
+    if last_logged_song and current_song == last_logged_song:
+        return
+    try:
+        song_counts = load_song_counts()
+        if current_song in song_counts:
+            song_counts[current_song] += 1
+        else:
+            song_counts[current_song] = 1
+        save_song_counts(song_counts)
+        last_logged_song = current_song
+    except Exception as e:
+        logger.error(f"Error logging song play: {e}")
+
+def save_song_counts(song_counts):
+    try:
+        data = {'song_counts': song_counts}
+        with open('song_counts.toml', 'w') as f:
+            toml.dump(data, f)
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Error saving song counts: {e}")
+
+def generate_music_stats(song_counts, max_items=1000):
+    song_counter = Counter(song_counts)
     artist_counter = Counter()
-    for entry in songs_data:
-        song = entry.get('song', 'Unknown Song')
-        artists = entry.get('artists', [])
-        clean_artists = []
-        if isinstance(artists, list):
+    for song_key, count in song_counts.items():
+        if ' - ' in song_key:
+            song_part, artist_part = song_key.split(' - ', 1)
+            artists = [a.strip() for a in artist_part.split(',')]
             for artist in artists:
-                if isinstance(artist, str) and ',' in artist:
-                    clean_artists.extend([a.strip() for a in artist.split(',') if a.strip()])
-                else:
-                    clean_artists.append(str(artist).strip())
-        elif isinstance(artists, str):
-            clean_artists = [a.strip() for a in artists.split(',') if a.strip()]
-        artist_names = ', '.join(clean_artists) if clean_artists else 'Unknown Artist'
-        song_with_artist = f"{song} - {artist_names}"
-        song_counter[song_with_artist] += 1
-        for artist_name in clean_artists:
-            if artist_name and artist_name != 'Unknown Artist':
-                artist_counter[artist_name] += 1
+                artist_counter[artist] += count
+        else:
+            artist_counter['Unknown Artist'] += count
     top_songs = dict(song_counter.most_common(max_items))
     top_artists = dict(artist_counter.most_common(max_items))
     return top_songs, top_artists
