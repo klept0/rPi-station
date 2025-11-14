@@ -100,7 +100,7 @@ sudo ./LCD35-show
 
 #### For Waveshare E-Paper:
 - Ensure proper SPI configuration
-- Check display compatibility with waveshare_epd library
+- Check display compatibility with eink_wave library
 - use waveshare/epdconfig.py in folder /usr/local/lib/python3.11/dist-packages/waveshare_epd/epdconfig.py
 
 ## ⚙️ Configuration
