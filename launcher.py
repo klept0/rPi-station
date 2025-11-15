@@ -93,15 +93,48 @@ def save_config(config):
 
 def setup_logging():
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('hud35.log')
-        ]
+    class RobustFileHandler(logging.FileHandler):
+        def __init__(self, filename, mode='a', encoding=None, delay=False):
+            self._filename = filename
+            self._mode = mode
+            self._encoding = encoding
+            self._delay = delay
+            self._ensure_directory_exists()
+            super().__init__(filename, mode, encoding, delay)
+        def _ensure_directory_exists(self):
+            directory = os.path.dirname(self._filename)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+        def emit(self, record):
+            # Recreate file if it was deleted
+            if not os.path.exists(self._filename):
+                try:
+                    self.stream = self._open()
+                except Exception:
+                    return
+            super().emit(record)
+    logger = logging.getLogger('Launcher')
+    logger.setLevel(logging.INFO)
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    return logging.getLogger('Launcher')
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    try:
+        file_handler = RobustFileHandler('hud35.log', delay=True)
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        if not os.path.exists('hud35.log'):
+            with open('hud35.log', 'w') as f:
+                f.write(f"Log file created at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    except Exception as e:
+        logger.error(f"Failed to setup file logging: {e}")
+    return logger
 
 def check_internet_connection(timeout=5):
     try:
@@ -537,21 +570,28 @@ def view_logs():
     ui_config = config.get("ui", {"theme": "dark"})
     current_theme = ui_config.get("theme", "dark")
     log_file = 'hud35.log'
-    
     if not os.path.exists(log_file):
-        return "No log file found", 404
-    
+        log_content = "Log file does not exist. It will be created when there are log messages.\n\n"
+        log_content += f"Log file path: {os.path.abspath(log_file)}"
+        if live:
+            return log_content
+        return render_template('logs.html',
+            log_content=log_content,
+            lines=lines,
+            current_theme=current_theme
+        )
     try:
         with open(log_file, 'r') as f:
             all_lines = f.readlines()
             recent_lines = all_lines[-lines:] if lines > 0 else all_lines
             log_content = ''.join(recent_lines)
+        if not log_content.strip():
+            log_content = "Log file exists but is empty. No log messages yet."
     except Exception as e:
-        log_content = f"Error reading log file: {str(e)}"
-    
+        log_content = f"Error reading log file: {str(e)}\n\n"
+        log_content += f"Log file path: {os.path.abspath(log_file)}"
     if live:
         return log_content
-    
     return render_template('logs.html',
         log_content=log_content,
         lines=lines,
@@ -563,8 +603,17 @@ def clear_logs():
     log_file = 'hud35.log'
     try:
         with open(log_file, 'w') as f:
-            f.write('')
-        return 'Logs cleared', 200
+            f.write(f"Logs cleared at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        logger = logging.getLogger('Launcher')
+        for handler in logger.handlers[:]:
+            if isinstance(handler, logging.FileHandler):
+                logger.removeHandler(handler)
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        return 'Logs cleared and logging reinitialized', 200
     except Exception as e:
         return f'Error clearing logs: {str(e)}', 500
 
@@ -769,6 +818,20 @@ def get_last_logged_song():
         logger.error(f"Error reading last logged song: {e}")
         return None
 
+def ensure_log_file():
+    log_file = 'hud35.log'
+    try:
+        if not os.path.exists(log_file):
+            with open(log_file, 'w') as f:
+                f.write(f"Log file created at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            return True
+        with open(log_file, 'a') as f:
+            f.write(f"Log check at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        return True
+    except Exception as e:
+        print(f"Log file error: {e}")
+        return False
+
 def log_current_track_state():
     global last_logged_song
     try:
@@ -806,7 +869,6 @@ def log_current_track_state():
         logger = logging.getLogger('Launcher')
         logger.error(f"Error logging from current track state: {e}")
 
-
 def update_song_count(song_info):
     global last_logged_song
     logger = logging.getLogger('Launcher')
@@ -824,7 +886,7 @@ def update_song_count(song_info):
         all_data['mapping'][song_hash] = current_song
         with open('song_counts.bin', 'wb') as f:
             f.write(zlib.compress(pickle.dumps(all_data, protocol=pickle.HIGHEST_PROTOCOL), level=9))
-        logger.info(f"🎵 Updated count: {song_info.get('song', 'Unknown Track')} - Total plays: {all_data['counts'][song_hash]}")
+        logger.info(f"🎵 Updated count: {song_info.get('song', 'Unknown Track')}")
         last_logged_song = current_song
     except Exception as e:
         logger.error(f"Error updating song count: {e}")
@@ -975,6 +1037,7 @@ def signal_handler(sig, frame):
     os._exit(0)
 
 def main():
+    ensure_log_file()
     load_config()
     logger = setup_logging()
     logger.info("🚀 Starting HUD35 Launcher")
