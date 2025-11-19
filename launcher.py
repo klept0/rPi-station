@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from flask import Flask, request, redirect, url_for, flash, Response, render_template
 from spotipy.oauth2 import SpotifyOAuth
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import Counter
 import os, toml, time, requests, subprocess, sys, signal, urllib.parse, socket, logging, threading, json, zlib, pickle, hashlib
 
@@ -317,7 +317,6 @@ def start_hud35():
             for line in iter(hud35_process.stdout.readline, ''):
                 if line.strip():
                     logger.info(f"[HUD35] {line.strip()}")
-                    # PUT IT HERE - replace the existing song logging
                     song_info = parse_song_from_log(line)
                     if song_info:
                         update_song_count(song_info)
@@ -645,7 +644,6 @@ def music_stats_data():
     artist_chart_data = generate_chart_data(artist_stats, 'Artists')
     song_chart_items = list(zip(song_chart_data['labels'], song_chart_data['data'], song_chart_data['colors']))
     artist_chart_items = list(zip(artist_chart_data['labels'], artist_chart_data['data'], artist_chart_data['colors']))
-    
     total_plays = sum(song_counts.values())
     unique_songs = len(song_counts)
     unique_artists = len(artist_stats)
@@ -715,7 +713,7 @@ def api_current_track():
 @app.route('/clear_song_logs', methods=['POST'])
 def clear_song_logs():
     try:
-        for filename in ['song_counts.bin', 'song_mapping.bin', 'song_counts.toml']:
+        for filename in ['song_counts.bin', 'song_mapping.bin', 'song_counts.toml', 'song_counts.bin.tmp']:
             if os.path.exists(filename):
                 os.remove(filename)
         return 'Song logs cleared', 200
@@ -822,6 +820,17 @@ def reset_advanced_config():
     flash('success', 'Advanced configuration reset to defaults!')
     return redirect(url_for('advanced_config'))
 
+@app.route('/shutdown', methods=['POST'])
+def shutdown():
+    """Endpoint to gracefully shutdown the server"""
+    logger = logging.getLogger('Launcher')
+    logger.info("Shutting down server via API request")
+    shutdown_func = request.environ.get('werkzeug.server.shutdown')
+    if shutdown_func is None:
+        raise RuntimeError('Not running with the Werkzeug Server')
+    shutdown_func()
+    return 'Server shutting down...'
+
 def get_last_logged_song():
     if not os.path.exists('songs.toml'):
         return None
@@ -897,16 +906,23 @@ def update_song_count(song_info):
     if last_logged_song and current_song == last_logged_song:
         return
     try:
-        if not os.path.exists('song_counts.bin'):
-            all_data = {'counts': {}, 'mapping': {}}
-        else:
-            with open('song_counts.bin', 'rb') as f:
-                all_data = pickle.loads(zlib.decompress(f.read()))
+        all_data = {'counts': {}, 'mapping': {}}
+        if os.path.exists('song_counts.bin'):
+            try:
+                with open('song_counts.bin', 'rb') as f:
+                    compressed_data = f.read()
+                    if compressed_data:
+                        all_data = pickle.loads(zlib.decompress(compressed_data))
+            except (zlib.error, EOFError, pickle.UnpicklingError) as e:
+                logger.warning(f"Corrupted song counts file, starting fresh: {e}")
+                all_data = {'counts': {}, 'mapping': {}}
         song_hash = hashlib.md5(current_song.encode('utf-8')).hexdigest()[:16]
         all_data['counts'][song_hash] = all_data['counts'].get(song_hash, 0) + 1
         all_data['mapping'][song_hash] = current_song
-        with open('song_counts.bin', 'wb') as f:
+        temp_file = 'song_counts.bin.tmp'
+        with open(temp_file, 'wb') as f:
             f.write(zlib.compress(pickle.dumps(all_data, protocol=pickle.HIGHEST_PROTOCOL), level=9))
+        os.replace(temp_file, 'song_counts.bin')
         logger.info(f"🎵 Updated count: {song_info.get('song', 'Unknown Track')}")
         last_logged_song = current_song
     except Exception as e:
@@ -967,14 +983,21 @@ def load_song_counts():
         return {}
     try:
         with open('song_counts.bin', 'rb') as f:
-            all_data = pickle.loads(zlib.decompress(f.read()))
+            compressed_data = f.read()
+            if not compressed_data:
+                return {}
+            all_data = pickle.loads(zlib.decompress(compressed_data))
         named_counts = {}
         for song_hash, count in all_data['counts'].items():
             named_counts[all_data['mapping'].get(song_hash, f"Unknown_{song_hash[:8]}")] = count
         return named_counts
+    except (zlib.error, EOFError, pickle.UnpicklingError) as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Error loading song counts (file may be corrupted): {e}")
+        return {}
     except Exception as e:
         logger = logging.getLogger('Launcher')
-        logger.error(f"Error loading song counts: {e}")
+        logger.error(f"Unexpected error loading song counts: {e}")
         return {}
 
 def save_song_counts(song_counts):
@@ -985,7 +1008,6 @@ def save_song_counts(song_counts):
     except Exception as e:
         logger = logging.getLogger('Launcher')
         logger.error(f"Error saving song counts: {e}")
-
 
 def generate_music_stats(song_counts, max_items=1000):
     song_counter = Counter(song_counts)
@@ -1062,7 +1084,6 @@ def main():
     load_config()
     logger = setup_logging()
     logger.info("🚀 Starting HUD35 Launcher")
-    
     def get_lan_ips():
         ips = []
         try:
@@ -1083,7 +1104,6 @@ def main():
         except Exception as e:
             logger.warning(f"Could not determine LAN IP: {e}")
         return list(set(ips))
-    
     lan_ips = get_lan_ips()
     auto_launch_applications()
     signal.signal(signal.SIGINT, signal_handler)
@@ -1091,32 +1111,40 @@ def main():
     import logging as pylogging
     log = pylogging.getLogger('werkzeug')
     log.setLevel(pylogging.WARNING)
-    ports = [5000, 5001, 5002, 5003]
+    app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
     chosen_port = None
-    for port in ports:
+    ports_to_try = [5000, 5001]
+    for port in ports_to_try:
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('0.0.0.0', port))
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            test_sock.bind(('0.0.0.0', port))
+            test_sock.close()
             chosen_port = port
-            if lan_ips:
-                for ip in lan_ips:
-                    logger.info(f"📍 Web UI available at: http://{ip}:{chosen_port}")
-            else:
-                logger.info(f"📍 Web UI available at: http://127.0.0.1:{chosen_port}")
-            logger.info("⏹️  Press Ctrl+C to stop the launcher")
-            sys.stdout = open(os.devnull, 'w')
-            sys.stderr = open(os.devnull, 'w')
-            app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-            app.run(host='0.0.0.0', port=chosen_port, debug=False, use_reloader=False)
             break
         except OSError as e:
-            if "Address already in use" in str(e):
+            if "Address already in use" in str(e) or "in use" in str(e).lower():
                 logger.debug(f"Port {port} is busy, trying next...")
                 continue
             else:
-                raise
+                logger.error(f"Socket error on port {port}: {e}")
+                continue
     if chosen_port is None:
         logger.error("❌ Could not find an available port. All ports 5000-5003 are busy.")
+        cleanup()
+        return
+    if lan_ips:
+        for ip in lan_ips:
+            logger.info(f"📍 Web UI available at: http://{ip}:{chosen_port}")
+    else:
+        logger.info(f"📍 Web UI available at: http://127.0.0.1:{chosen_port}")
+    
+    logger.info("⏹️  Press Ctrl+C to stop the launcher")
+    try:
+        app.run(host='0.0.0.0', port=chosen_port, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.error(f"❌ Flask server crashed: {e}")
+    finally:
         cleanup()
 
 if __name__ == '__main__':

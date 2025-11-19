@@ -1,13 +1,9 @@
-# Makefile for HUD35 Setup with Virtual Environment
-
 VENV_DIR = /opt/hud35/venv
 SERVICE_NAME = hud35
 PROJECT_DIR = /opt/hud35
 SERVICE_FILE = /etc/systemd/system/$(SERVICE_NAME).service
 LCD_SHOW_DIR = LCD-show
-CONFIG_FILE = config.toml
-
-# Colors for output
+CONFIG_FILE = /opt/hud35/config.toml
 GREEN = \033[0;32m
 YELLOW = \033[0;33m
 RED = \033[0;31m
@@ -16,59 +12,44 @@ NC = \033[0m # No Color
 
 .PHONY: all install system-deps python-packages setup-display setup-service clean status logs help config config-api config-display config-fonts config-buttons config-wifi config-settings view-config reset-config
 
-# Default target - full installation
 all: system-deps python-packages config setup-service
 	@echo "$(GREEN)Installation complete!$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Next steps:$(NC)"
-	@echo "1. $(YELLOW)Run 'make setup-display' to install LCD drivers (will reboot)$(NC)"
-	@echo "2. $(YELLOW)Check status: make status$(NC)"
-	@echo "3. $(YELLOW)View logs: make logs$(NC)"
+	@echo "1. $(YELLOW)Setup config: make config$(NC)"
+	@echo "2. $(YELLOW)Run 'make setup-display' to install LCD drivers (will reboot)$(NC)"
+	@echo "3. $(YELLOW)Check status: make status$(NC)"
+	@echo "4. $(YELLOW)View logs: make logs$(NC)"
 
-# Install system dependencies (only system libraries, no Python packages)
 system-deps:
 	@echo "$(GREEN)Installing system dependencies...$(NC)"
 	sudo apt update
 	sudo apt install -y python3-pip python3-venv
-	# Install only system libraries needed for Python package compilation
 	sudo apt install -y libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev git
 	sudo apt install -y liblcms2-dev libwebp-dev libtiff-dev libopenjp2-7-dev libxcb1-dev
 	sudo apt install -y libopenblas-dev libcairo2-dev libdbus-1-dev
 	@echo "$(GREEN)System dependencies installed$(NC)"
 
-# Create virtual environment and install ALL Python packages via pip
 python-packages: system-deps
 	@echo "$(GREEN)Setting up Python virtual environment...$(NC)"
 	sudo mkdir -p $(PROJECT_DIR)
 	sudo chown $$USER:$$USER $(PROJECT_DIR)
-	
-	# Create virtual environment
 	python3 -m venv $(VENV_DIR)
-	
-	# Install ALL packages in virtual environment (no apt Python packages)
 	@echo "$(GREEN)Installing Python packages in virtual environment...$(NC)"
 	$(VENV_DIR)/bin/pip install --upgrade pip
 	$(VENV_DIR)/bin/pip install spotipy st7789 eink-wave
 	$(VENV_DIR)/bin/pip install evdev numpy pillow flask
 	$(VENV_DIR)/bin/pip install pycairo dbus-python
 	$(VENV_DIR)/bin/pip install toml
-	
-	# Install any additional dependencies that might be needed
 	$(VENV_DIR)/bin/pip install setuptools wheel
-	
 	@echo "$(GREEN)All Python packages installed in virtual environment$(NC)"
-	
-	# Copy project files
 	@echo "$(GREEN)Copying project files...$(NC)"
 	cp -r . $(PROJECT_DIR)/
-	
-	# Fix waveshare config in virtual environment
 	if [ -f "./waveshare/epdconfig.py" ]; then \
 		sudo cp ./waveshare/epdconfig.py $(VENV_DIR)/lib/python3.*/site-packages/waveshare_epd/; \
 		echo "$(GREEN)Waveshare config updated in virtual environment$(NC)"; \
 	fi
 
-# Setup LCD display drivers (WARNING: will reboot)
 setup-display:
 	@echo "$(YELLOW)WARNING: This will install LCD drivers and reboot the system!$(NC)"
 	@echo "$(YELLOW)Make sure to save any work before continuing.$(NC)"
@@ -82,13 +63,9 @@ setup-display:
 	mv $(LCD_SHOW_DIR) LCD-show
 	cd LCD-show && chmod +x ./*
 	sudo ./LCD35-show
-	# System will reboot after this
 
-# Setup systemd service using virtual environment
-setup-service: python-packages
+setup-service:
 	@echo "$(GREEN)Setting up systemd service...$(NC)"
-	
-	# Update your service file to use the virtual environment Python
 	@if [ -f "hud35.service" ]; then \
 		echo "$(GREEN)Updating existing hud35.service to use virtual environment...$(NC)"; \
 		sed 's|/usr/bin/python3|$(VENV_DIR)/bin/python3|' hud35.service > hud35.service.venv; \
@@ -108,7 +85,8 @@ setup-service: python-packages
 		echo "WorkingDirectory=$(PROJECT_DIR)" >> hud35.service.tmp; \
 		echo "ExecStart=$(VENV_DIR)/bin/python3 $(PROJECT_DIR)/launcher.py" >> hud35.service.tmp; \
 		echo "Restart=on-failure" >> hud35.service.tmp; \
-		echo "RestartSec=10" >> hud35.service.tmp; \
+		echo "RestartSec=5" >> hud35.service.tmp; \
+		echo "TimeoutStartSec=30" >> hud35.service.tmp; \
 		echo "StandardOutput=journal" >> hud35.service.tmp; \
 		echo "StandardError=journal" >> hud35.service.tmp; \
 		echo "" >> hud35.service.tmp; \
@@ -117,14 +95,11 @@ setup-service: python-packages
 		sudo cp hud35.service.tmp $(SERVICE_FILE); \
 		rm hud35.service.tmp; \
 	fi
-	
 	sudo systemctl daemon-reload
 	sudo systemctl enable $(SERVICE_NAME).service
-	
 	@echo "$(GREEN)Systemd service setup complete$(NC)"
 	@echo "$(GREEN)Service will use virtual environment at: $(VENV_DIR)$(NC)"
 
-# Interactive configuration menu - Walk through all settings
 config:
 	@echo "$(BLUE)=========================================$(NC)"
 	@echo "$(BLUE)      HUD35 WALK-THROUGH CONFIGURATION    $(NC)"
@@ -149,7 +124,6 @@ config:
 	@echo "$(GREEN)Current configuration:$(NC)"
 	@make view-config
 
-# Configure API keys
 config-api:
 	@echo "$(BLUE)--- API KEYS CONFIGURATION ---$(NC)"
 	@if [ ! -f "$(CONFIG_FILE)" ]; then \
@@ -181,7 +155,6 @@ config-api:
 	echo "$(GREEN)✓ API keys updated$(NC)"
 	@echo ""
 
-# Configure display settings
 config-display:
 	@echo "$(BLUE)--- DISPLAY SETTINGS ---$(NC)"
 	@if [ ! -f "$(CONFIG_FILE)" ]; then \
@@ -230,7 +203,6 @@ config-display:
 	echo "$(GREEN)✓ Display settings updated$(NC)"
 	@echo ""
 
-# Configure font settings
 config-fonts:
 	@echo "$(BLUE)--- FONT SETTINGS ---$(NC)"
 	@if [ ! -f "$(CONFIG_FILE)" ]; then \
@@ -292,7 +264,6 @@ config-fonts:
 	echo "$(GREEN)✓ Font settings updated$(NC)"
 	@echo ""
 
-# Configure button GPIO settings
 config-buttons:
 	@echo "$(BLUE)--- BUTTON GPIO CONFIGURATION ---$(NC)"
 	@if [ ! -f "$(CONFIG_FILE)" ]; then \
@@ -320,7 +291,6 @@ config-buttons:
 	echo "$(GREEN)✓ Button GPIO settings updated$(NC)"
 	@echo ""
 
-# Configure WiFi settings
 config-wifi:
 	@echo "$(BLUE)--- WIFI SETTINGS ---$(NC)"
 	@if [ ! -f "$(CONFIG_FILE)" ]; then \
@@ -340,7 +310,6 @@ config-wifi:
 	echo "$(GREEN)✓ WiFi settings updated$(NC)"
 	@echo ""
 
-# Configure general settings
 config-settings:
 	@echo "$(BLUE)--- GENERAL SETTINGS ---$(NC)"
 	@if [ ! -f "$(CONFIG_FILE)" ]; then \
@@ -393,7 +362,6 @@ config-settings:
 	echo "$(GREEN)✓ General settings updated$(NC)"
 	@echo ""
 
-# View current configuration
 view-config:
 	@echo "$(BLUE)--- CURRENT CONFIGURATION ---$(NC)"
 	@if [ -f "$(CONFIG_FILE)" ]; then \
@@ -402,7 +370,6 @@ view-config:
 		echo "$(YELLOW)No configuration file found. Run 'make config' to create one.$(NC)"; \
 	fi
 
-# Reset configuration to defaults
 reset-config:
 	@echo "$(RED)WARNING: This will reset all configuration to defaults!$(NC)"
 	@read -p "Are you sure? (y/N): " choice; \
@@ -413,7 +380,6 @@ reset-config:
 		echo "Reset cancelled."; \
 	fi
 
-# Create default configuration file (internal target)
 create-default-config:
 	@$(VENV_DIR)/bin/python3 -c " \
 import toml; \
@@ -490,35 +456,28 @@ with open('$(CONFIG_FILE)', 'w') as f: \
     toml.dump(DEFAULT_CONFIG, f) \
 "
 
-# Start the service
 start:
 	sudo systemctl start $(SERVICE_NAME).service
 	@echo "$(GREEN)Service started$(NC)"
 
-# Stop the service
 stop:
 	sudo systemctl stop $(SERVICE_NAME).service
 	@echo "$(YELLOW)Service stopped$(NC)"
 
-# Restart the service
 restart: stop start
 
-# Check service status
 status:
 	@echo "$(GREEN)Service status:$(NC)"
 	sudo systemctl status $(SERVICE_NAME).service
 
-# View service logs via journalctl (since you use journal)
 logs:
 	@echo "$(GREEN)Service logs (journalctl):$(NC)"
 	sudo journalctl -u $(SERVICE_NAME).service -f
 
-# View last 50 lines of logs
 tail:
 	@echo "$(GREEN)Viewing program logs:$(NC)"
 	tail -f /opt/hud35/hud35.log
 
-# Update Python packages (after service is setup)
 update-packages:
 	@echo "$(GREEN)Updating Python packages in virtual environment...$(NC)"
 	sudo systemctl stop $(SERVICE_NAME).service
@@ -526,12 +485,10 @@ update-packages:
 	sudo systemctl start $(SERVICE_NAME).service
 	@echo "$(GREEN)Packages updated and service restarted$(NC)"
 
-# Run Python script directly in virtual environment (for testing)
 run:
 	@echo "$(GREEN)Running in virtual environment...$(NC)"
 	$(VENV_DIR)/bin/python3 launcher.py
 
-# Show virtual environment info
 venv-info:
 	@echo "$(GREEN)Virtual environment info:$(NC)"
 	@echo "Location: $(VENV_DIR)"
@@ -541,7 +498,6 @@ venv-info:
 	@echo "$(GREEN)Installed packages:$(NC)"
 	$(VENV_DIR)/bin/pip list
 
-# Clean up (remove service and project files)
 clean:
 	@echo "$(YELLOW)Cleaning up...$(NC)"
 	sudo systemctl stop $(SERVICE_NAME).service 2>/dev/null || true
@@ -552,7 +508,6 @@ clean:
 	rm -rf LCD-show
 	@echo "$(GREEN)Cleanup complete$(NC)"
 
-# Show this help
 help:
 	@echo "$(GREEN)HUD35 Setup Makefile$(NC)"
 	@echo ""
@@ -585,7 +540,7 @@ help:
 	@echo "  $(GREEN)help$(NC)            - Show this help message"
 	@echo ""
 	@echo "$(YELLOW)Recommended workflow:$(NC)"
-	@echo "  1. make all"
+	@echo "  1. sudo make"
 	@echo "  2. make config"
 	@echo "  3. make setup-display  $(RED)(will reboot)$(NC)"
 	@echo "  4. make start"
