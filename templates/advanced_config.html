@@ -285,70 +285,85 @@
             </div>
             <div class="section">
                 <h2>📍 Location & Display Settings</h2>
-                <div class="config-grid">
-                    <div>
-                        <h3>Location Services</h3>
-                        <div class="form-group">
-                            <label for="fallback_city">Fallback City:</label>
-                            <input type="text" id="fallback_city" name="fallback_city" value="{{ config.settings.fallback_city }}" placeholder="e.g., London,UK">
-                            <small>Used when location services are unavailable</small>
+                <div class="location-settings">
+                    <h3>Location Services</h3>
+                    <div class="config-grid">
+                        <div>
+                            <div class="form-group">
+                                <label for="fallback_city">Fallback City:</label>
+                                <input type="text" id="fallback_city" name="fallback_city" value="{{ config.settings.fallback_city }}" placeholder="e.g., London,UK">
+                                <small>Used when location services are unavailable</small>
+                            </div>
                         </div>
-                        <div class="toggle-switch">
-                            <input type="checkbox" id="use_gpsd" name="use_gpsd" {% if config.settings.use_gpsd %}checked{% endif %}>
-                            <label for="use_gpsd">Use GPSD for location</label>
-                            <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(Requires GPS hardware and gpsd service)</small>
-                        </div>
-                        <div class="toggle-switch">
-                            <input type="checkbox" id="use_google_geo" name="use_google_geo" {% if config.settings.use_google_geo %}checked{% endif %}>
-                            <label for="use_google_geo">Use Google Geolocation</label>
-                            <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(More accurate than IP-based location)</small>
+                        <div>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="use_gpsd" name="use_gpsd" {% if config.settings.use_gpsd %}checked{% endif %}>
+                                <label for="use_gpsd">Use GPSD for location</label>
+                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(Requires GPS hardware and gpsd service)</small>
+                            </div>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="use_google_geo" name="use_google_geo" {% if config.settings.use_google_geo %}checked{% endif %}>
+                                <label for="use_google_geo">Use Google Geolocation</label>
+                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(More accurate than IP-based location)</small>
+                            </div>
                         </div>
                     </div>
-                    <div>
-                        <h3>Display Settings</h3>
-                        <div class="form-group">
-                            <label for="display_type">Display Type:</label>
-                            <select id="display_type" name="display_type">
-                                <option value="framebuffer" {% if config.display.type == "framebuffer" %}selected{% endif %}>Framebuffer (TFT 3.5")</option>
-                                <option value="st7789" {% if config.display.type == "st7789" %}selected{% endif %}>ST7789 (DisplayHatMini)</option>
-                                <option value="waveshare_epd" {% if config.display.type == "waveshare_epd" %}selected{% endif %}>Waveshare E-Paper</option>
-                            </select>
-                            <small>Select your display hardware type</small>
+                </div>
+                <div class="display-settings">
+                    <h3>Display Settings</h3>
+                    <div class="config-grid">
+                        <div>
+                            <div class="form-group">
+                                <label for="display_type">Display Type:</label>
+                                <select id="display_type" name="display_type">
+                                    <option value="framebuffer" {% if config.display.type == "framebuffer" %}selected{% endif %}>Framebuffer (TFT 3.5")</option>
+                                    <option value="st7789" {% if config.display.type == "st7789" %}selected{% endif %}>ST7789 (DisplayHatMini)</option>
+                                    <option value="waveshare_epd" {% if config.display.type == "waveshare_epd" %}selected{% endif %}>Waveshare E-Paper</option>
+                                </select>
+                                <small>Select your display hardware type</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="framebuffer_device">Framebuffer Device:</label>
+                                <input type="text" id="framebuffer_device" name="framebuffer_device" value="{{ config.display.framebuffer }}" placeholder="/dev/fb1">
+                                <small>Path to framebuffer device (e.g., /dev/fb0, /dev/fb1)</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="rotation">Rotation:</label>
+                                <select id="rotation" name="rotation">
+                                    <option value="0" {% if config.display.rotation == 0 %}selected{% endif %}>0°</option>
+                                    <option value="180" {% if config.display.rotation == 180 %}selected{% endif %}>180°</option>
+                                </select>
+                                <small>Screen rotation angle</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="sleep_timeout">Screen Timeout (seconds):</label>
+                                <input type="number" id="sleep_timeout" name="sleep_timeout" value="{{ config.settings.sleep_timeout }}" min="0" max="99999" step="30">
+                                <small>Time in seconds before screen turns off (0 = never)</small>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="framebuffer_device">Framebuffer Device:</label>
-                            <input type="text" id="framebuffer_device" name="framebuffer_device" value="{{ config.display.framebuffer }}" placeholder="/dev/fb1">
-                            <small>Path to framebuffer device (e.g., /dev/fb0, /dev/fb1)</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="rotation">Rotation:</label>
-                            <select id="rotation" name="rotation">
-                                <option value="0" {% if config.display.rotation == 0 %}selected{% endif %}>0°</option>
-                                <option value="180" {% if config.display.rotation == 180 %}selected{% endif %}>180°</option>
-                            </select>
-                            <small>Screen rotation angle</small>
-                        </div>
-                        <div class="form-group">
-                            <label for="start_screen">Start Screen:</label>
-                            <select id="start_screen" name="start_screen">
-                                <option value="weather" {% if config.settings.start_screen == "weather" %}selected{% endif %}>Weather</option>
-                                <option value="spotify" {% if config.settings.start_screen == "spotify" %}selected{% endif %}>Spotify</option>
-                                <option value="time" {% if config.settings.start_screen == "time" %}selected{% endif %}>Time</option>
-                            </select>
-                            <small>Default screen to show on startup</small>
-                        </div>
-                        <div class="toggle-switch">
-                            <input type="checkbox" id="time_display" name="time_display" {% if config.settings.time_display %}checked{% endif %}>
-                            <label for="time_display">Show time display</label>
-                        </div>
-                        <div class="toggle-switch">
-                            <input type="checkbox" id="enable_current_track_display" name="enable_current_track_display" {% if config.settings.enable_current_track_display %}checked{% endif %}>
-                            <label for="enable_current_track_display">Enable current track display</label>
-                            <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(Shows current track on display and updates the current track file for the web UI)</small>
-                        </div>
-                        <div class="toggle-switch">
-                            <input type="checkbox" id="progressbar_display" name="progressbar_display" {% if config.settings.progressbar_display %}checked{% endif %}>
-                            <label for="progressbar_display">Show progress bar for Spotify tracks</label>
+                        <div>
+                            <div class="form-group">
+                                <label for="start_screen">Start Screen:</label>
+                                <select id="start_screen" name="start_screen">
+                                    <option value="weather" {% if config.settings.start_screen == "weather" %}selected{% endif %}>Weather</option>
+                                    <option value="spotify" {% if config.settings.start_screen == "spotify" %}selected{% endif %}>Spotify</option>
+                                    <option value="time" {% if config.settings.start_screen == "time" %}selected{% endif %}>Time</option>
+                                </select>
+                                <small>Default screen to show on startup</small>
+                            </div>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="time_display" name="time_display" {% if config.settings.time_display %}checked{% endif %}>
+                                <label for="time_display">Show time display</label>
+                            </div>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="enable_current_track_display" name="enable_current_track_display" {% if config.settings.enable_current_track_display %}checked{% endif %}>
+                                <label for="enable_current_track_display">Enable current track display</label>
+                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(Shows current track on display and updates the current track file for the web UI)</small>
+                            </div>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="progressbar_display" name="progressbar_display" {% if config.settings.progressbar_display %}checked{% endif %}>
+                                <label for="progressbar_display">Show progress bar for Spotify tracks</label>
+                            </div>
                         </div>
                     </div>
                 </div>
