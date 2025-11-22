@@ -1808,17 +1808,19 @@ def clear_framebuffer():
     display_type = config.get("display", {}).get("type", "framebuffer")
     if display_type == "waveshare_epd" and HAS_WAVESHARE_EPD:
         try:
+            from waveshare_epd.epd2in13_V3 import EPD
+            epd = EPD()
+            epd.init()
             white_img = Image.new('1', (250, 122), 255)
-            waveshare_epd.display(waveshare_epd.getbuffer(white_img))
+            epd.display(epd.getbuffer(white_img))
+            epd.sleep()
             return
-        except:
-            try:
-                init_waveshare_display()
-                white_img = Image.new('1', (250, 122), 255)
-                waveshare_epd.display(waveshare_epd.getbuffer(white_img))
-                print("✅ Screen cleared after reinit")
-            except:
-                print("❌ Couldn't clear screen - giving up")
+        except Exception as e:
+            from waveshare_epd.epd2in13_V3 import EPD
+            epd = EPD()
+            epd.init()
+            epd.Clear(0xFF)
+            epd.sleep()
     elif display_type == "st7789" and HAS_ST7789 and st7789_display:
         black_img = Image.new("RGB", (320, 240), "black")
         st7789_display.display(black_img)
@@ -1902,13 +1904,10 @@ def main():
     except KeyboardInterrupt:
         print("\nShutting down...")
     finally:
-        exit_event.set()
         cleanup_scroll_state()
         clear_framebuffer()
         time.sleep(0.3)
-
-if __name__ == "__main__":
-    main()
+        exit_event.set()
 
 if __name__ == "__main__":
     main()
