@@ -12,6 +12,8 @@
             --accent-color: #007bff;
             --accent-hover: #0056b3;
             --border-color: #444444;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
         }
         [data-theme="light"] {
             --bg-primary: #ffffff;
@@ -22,6 +24,8 @@
             --accent-color: #007bff;
             --accent-hover: #0056b3;
             --border-color: #dee2e6;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
         }
         body {
             font-family: Arial, sans-serif;
@@ -32,7 +36,7 @@
             transition: all 0.3s ease;
         }
         .container {
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
         }
         .header {
@@ -75,12 +79,34 @@
             background: var(--border-color);
             cursor: not-allowed;
         }
+        .content-container {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+            align-items: start;
+        }
         .results-container {
             max-height: 70vh;
             overflow-y: auto;
             background: var(--bg-secondary);
             border-radius: 8px;
             border: 1px solid var(--border-color);
+        }
+        .queue-container {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        .queue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--accent-color);
         }
         .result-item {
             display: flex;
@@ -96,11 +122,46 @@
         .result-item:last-child {
             border-bottom: none;
         }
+        .queue-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+            gap: 12px;
+            transition: background 0.2s ease;
+        }
+        .queue-item:hover {
+            background: var(--bg-tertiary);
+        }
+        .queue-item:last-child {
+            border-bottom: none;
+        }
+        .queue-item.current {
+            background: var(--success-color);
+            color: white;
+            border-radius: 6px;
+            margin: 5px 0;
+        }
+        .queue-item.current .track-name {
+            color: white;
+        }
+        .queue-item.current .track-artists,
+        .queue-item.current .track-album {
+            color: rgba(255, 255, 255, 0.9);
+        }
         .track-art {
             width: 60px;
             height: 60px;
             border-radius: 4px;
             object-fit: cover;
+            flex-shrink: 0;
+        }
+        .queue-art {
+            width: 40px;
+            height: 40px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
         }
         .track-art-placeholder {
             width: 60px;
@@ -112,24 +173,80 @@
             justify-content: center;
             color: var(--text-secondary);
             font-size: 20px;
+            flex-shrink: 0;
+        }
+        .queue-art-placeholder {
+            width: 40px;
+            height: 40px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+            flex-shrink: 0;
         }
         .track-info {
             flex: 1;
+            min-width: 0;
+        }
+        .queue-info {
+            flex: 1;
+            min-width: 0;
         }
         .track-name {
             font-weight: bold;
             color: var(--text-primary);
             margin-bottom: 5px;
             font-size: 16px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .queue-name {
+            font-weight: bold;
+            color: var(--text-primary);
+            margin-bottom: 3px;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .track-artists {
             color: var(--text-secondary);
             font-size: 14px;
             margin-bottom: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .queue-artists {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .track-album {
             color: var(--text-secondary);
             font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .queue-album {
+            color: var(--text-secondary);
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .track-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
         }
         .play-button {
             padding: 8px 16px;
@@ -139,11 +256,26 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
+            white-space: nowrap;
         }
         .play-button:hover {
             background: var(--accent-hover);
         }
-        .play-button:disabled {
+        .queue-button {
+            padding: 8px 12px;
+            background: var(--warning-color);
+            color: #212529;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        .queue-button:hover {
+            background: #e0a800;
+        }
+        .play-button:disabled,
+        .queue-button:disabled {
             background: var(--border-color);
             cursor: not-allowed;
         }
@@ -181,6 +313,35 @@
         .back-button:hover {
             background: #5a6268;
         }
+        .empty-state {
+            padding: 40px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        .refresh-button {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .refresh-button:hover {
+            background: var(--accent-hover);
+        }
+        @media (max-width: 768px) {
+            .content-container {
+                grid-template-columns: 1fr;
+            }
+            .queue-container {
+                max-height: 300px;
+            }
+        }
     </style>
 </head>
 <body data-theme="{{ ui_config.theme }}">
@@ -197,29 +358,47 @@
         
         <div id="searchStatus" class="status" style="display: none;"></div>
         
-        <div id="resultsContainer" class="results-container">
-            {% if tracks %}
-                {% for track in tracks %}
-                <div class="result-item">
-                    {% if track.image_url %}
-                    <img src="{{ track.image_url }}" class="track-art" alt="{{ track.album }}">
-                    {% else %}
-                    <div class="track-art-placeholder">🎵</div>
-                    {% endif %}
-                    <div class="track-info">
-                        <div class="track-name">{{ track.name }}</div>
-                        <div class="track-artists">{{ track.artists }}</div>
-                        <div class="track-album">{{ track.album }} • {{ track.duration }}</div>
+        <div class="content-container">
+            <div class="results-container">
+                {% if tracks %}
+                    {% for track in tracks %}
+                    <div class="result-item">
+                        {% if track.image_url %}
+                        <img src="{{ track.image_url }}" class="track-art" alt="{{ track.album }}">
+                        {% else %}
+                        <div class="track-art-placeholder">🎵</div>
+                        {% endif %}
+                        <div class="track-info">
+                            <div class="track-name">{{ track.name }}</div>
+                            <div class="track-artists">{{ track.artists }}</div>
+                            <div class="track-album">{{ track.album }} • {{ track.duration }}</div>
+                        </div>
+                        <div class="track-actions">
+                            <button class="queue-button" onclick="addToQueue('{{ track.uri }}', '{{ track.name|escape }}')">➕ Add to Queue</button>
+                            <button class="play-button" onclick="playTrack('{{ track.uri }}', '{{ track.name|escape }}')">▶ Play Now</button>
+                        </div>
                     </div>
-                    <button class="play-button" onclick="playTrack('{{ track.uri }}')">▶ Play</button>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">
+                        <div class="empty-icon">🎵</div>
+                        <div>Enter a search term to find music</div>
+                    </div>
+                {% endif %}
+            </div>
+            
+            <div class="queue-container">
+                <div class="queue-header">
+                    <h3>🎵 Current Queue</h3>
+                    <button class="refresh-button" onclick="loadQueue()">🔄 Refresh</button>
                 </div>
-                {% endfor %}
-            {% else %}
-                <div style="padding: 40px; text-align: center; color: var(--text-secondary);">
-                    <div style="font-size: 48px; margin-bottom: 10px;">🎵</div>
-                    <div>Enter a search term to find music</div>
+                <div id="queueList">
+                    <div class="empty-state">
+                        <div class="empty-icon">⏳</div>
+                        <div>Loading queue...</div>
+                    </div>
                 </div>
-            {% endif %}
+            </div>
         </div>
     </div>
 
@@ -230,6 +409,7 @@
         function getRateLimitForAction(action) {
             const limits = {
                 'play': 2000,
+                'queue': 1500,
                 'search': 1000
             };
             return limits[action] || 1000;
@@ -276,7 +456,6 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Redirect to results page with data
                     window.location.href = `/search_results?query=${encodeURIComponent(query)}&tracks=${encodeURIComponent(JSON.stringify(data.tracks))}`;
                 } else {
                     showStatus('Search failed: ' + data.error, 'error');
@@ -292,13 +471,13 @@
             });
         }
         
-        function playTrack(trackUri) {
+        function playTrack(trackUri, trackName) {
             if (!canMakeRequest('play')) {
                 showStatus('Please wait before playing another track', 'error');
                 return;
             }
             
-            showStatus('Playing track...', 'info');
+            showStatus(`Playing "${trackName}"...`, 'info');
             
             fetch('/spotify_play_track', {
                 method: 'POST',
@@ -310,7 +489,9 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showStatus('Now playing!', 'success');
+                    showStatus(`Now playing "${trackName}"!`, 'success');
+                    // Refresh queue to show the new current track
+                    setTimeout(loadQueue, 1000);
                 } else {
                     showStatus('Play failed: ' + data.error, 'error');
                 }
@@ -326,6 +507,90 @@
             });
         }
         
+        function addToQueue(trackUri, trackName) {
+            if (!canMakeRequest('queue')) {
+                showStatus('Please wait before adding another track', 'error');
+                return;
+            }
+            
+            showStatus(`Adding "${trackName}" to queue...`, 'info');
+            
+            fetch('/spotify_add_to_queue', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ track_uri: trackUri })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showStatus(`"${trackName}" added to queue!`, 'success');
+                    // Refresh queue to show the new track
+                    setTimeout(loadQueue, 1000);
+                } else {
+                    showStatus('Add to queue failed: ' + data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showStatus('Queue error: ' + error, 'error');
+            })
+            .finally(() => {
+                completeRequest();
+                setTimeout(() => {
+                    document.getElementById('searchStatus').style.display = 'none';
+                }, 3000);
+            });
+        }
+        
+        function loadQueue() {
+            fetch('/spotify_get_queue')
+                .then(response => response.json())
+                .then(data => {
+                    const queueList = document.getElementById('queueList');
+                    
+                    if (data.success && data.queue && data.queue.length > 0) {
+                        let queueHTML = '';
+                        data.queue.forEach((track, index) => {
+                            const itemClass = track.is_current ? 'queue-item current' : 'queue-item';
+                            queueHTML += `
+                                <div class="${itemClass}">
+                                    ${track.image_url ? 
+                                        `<img src="${track.image_url}" class="queue-art" alt="${track.album}">` :
+                                        `<div class="queue-art-placeholder">${track.is_current ? '▶' : '🎵'}</div>`
+                                    }
+                                    <div class="queue-info">
+                                        <div class="queue-name">${track.name}</div>
+                                        <div class="queue-artists">${track.artists}</div>
+                                        <div class="queue-album">${track.album}</div>
+                                    </div>
+                                    ${track.is_current ? '<div style="color: white; font-size: 12px; font-weight: bold;">NOW PLAYING</div>' : ''}
+                                </div>
+                            `;
+                        });
+                        queueList.innerHTML = queueHTML;
+                    } else {
+                        queueList.innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-icon">📭</div>
+                                <div>Queue is empty</div>
+                                <div style="font-size: 12px; margin-top: 10px;">Add tracks to see them here</div>
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    const queueList = document.getElementById('queueList');
+                    queueList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">❌</div>
+                            <div>Error loading queue</div>
+                            <div style="font-size: 12px; margin-top: 10px;">${error.message}</div>
+                        </div>
+                    `;
+                });
+        }
+        
         function showStatus(message, type) {
             const statusDiv = document.getElementById('searchStatus');
             statusDiv.textContent = message;
@@ -333,16 +598,20 @@
             statusDiv.style.display = 'block';
         }
         
-        // Enter key support
+        // Enter key support for search
         document.getElementById('searchInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 performSearch();
             }
         });
         
-        // Focus search input on load
+        // Focus search input on load and load queue
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('searchInput').focus();
+            loadQueue();
+            
+            // Refresh queue every 10 seconds to keep it updated
+            setInterval(loadQueue, 10000);
         });
     </script>
 </body>

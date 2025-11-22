@@ -873,6 +873,165 @@ def spotify_volume():
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
+@app.route('/spotify_search', methods=['POST'])
+@rate_limit(1.0)
+def spotify_search():
+    try:
+        config = load_config()
+        query = request.json.get('query', '').strip()
+        if not query:
+            return {'success': False, 'error': 'No search query provided'}
+        sp_oauth = SpotifyOAuth(
+            client_id=config["api_keys"]["client_id"],
+            client_secret=config["api_keys"]["client_secret"],
+            redirect_uri=config["api_keys"]["redirect_uri"],
+            scope="user-read-currently-playing user-modify-playback-state user-read-playback-state",
+            cache_path=".spotify_cache"
+        )
+        token_info = sp_oauth.get_cached_token()
+        if not token_info:
+            return {'success': False, 'error': 'Not authenticated with Spotify'}
+        sp = spotipy.Spotify(auth=token_info['access_token'])
+        results = sp.search(q=query, type='track', limit=20)
+        tracks = []
+        for item in results['tracks']['items']:
+            image_url = None
+            if item['album']['images']:
+                image_url = item['album']['images'][-1]['url'] if item['album']['images'] else None
+            duration_ms = item['duration_ms']
+            duration_min = duration_ms // 60000
+            duration_sec = (duration_ms % 60000) // 1000
+            duration_str = f"{duration_min}:{duration_sec:02d}"
+            artists = ', '.join([artist['name'] for artist in item['artists']])
+            tracks.append({
+                'name': item['name'],
+                'artists': artists,
+                'album': item['album']['name'],
+                'duration': duration_str,
+                'uri': item['uri'],
+                'image_url': image_url
+            })
+        return {'success': True, 'tracks': tracks}
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Spotify search error: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+@app.route('/spotify_add_to_queue', methods=['POST'])
+@rate_limit(0.5)
+def spotify_add_to_queue():
+    try:
+        config = load_config()
+        track_uri = request.json.get('track_uri', '').strip()
+        if not track_uri:
+            return {'success': False, 'error': 'No track URI provided'}
+        sp_oauth = SpotifyOAuth(
+            client_id=config["api_keys"]["client_id"],
+            client_secret=config["api_keys"]["client_secret"],
+            redirect_uri=config["api_keys"]["redirect_uri"],
+            scope="user-read-currently-playing user-modify-playback-state user-read-playback-state",
+            cache_path=".spotify_cache"
+        )
+        token_info = sp_oauth.get_cached_token()
+        if not token_info:
+            return {'success': False, 'error': 'Not authenticated with Spotify'}
+        sp = spotipy.Spotify(auth=token_info['access_token'])
+        sp.add_to_queue(track_uri)
+        return {'success': True, 'message': 'Track added to queue'}
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Spotify add to queue error: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+@app.route('/spotify_get_queue', methods=['GET'])
+def spotify_get_queue():
+    try:
+        config = load_config()
+        sp_oauth = SpotifyOAuth(
+            client_id=config["api_keys"]["client_id"],
+            client_secret=config["api_keys"]["client_secret"],
+            redirect_uri=config["api_keys"]["redirect_uri"],
+            scope="user-read-currently-playing user-modify-playback-state user-read-playback-state",
+            cache_path=".spotify_cache"
+        )
+        token_info = sp_oauth.get_cached_token()
+        if not token_info:
+            return {'success': False, 'error': 'Not authenticated with Spotify'}
+        sp = spotipy.Spotify(auth=token_info['access_token'])
+        playback = sp.current_playback()
+        queue = sp.queue()
+        queue_tracks = []
+        if playback and playback.get('item'):
+            current_track = playback['item']
+            artists = ', '.join([artist['name'] for artist in current_track['artists']])
+            image_url = current_track['album']['images'][-1]['url'] if current_track['album']['images'] else None
+            queue_tracks.append({
+                'name': current_track['name'],
+                'artists': artists,
+                'album': current_track['album']['name'],
+                'uri': current_track['uri'],
+                'image_url': image_url,
+                'is_current': True
+            })
+        if queue and queue.get('queue'):
+            for track in queue['queue']:
+                artists = ', '.join([artist['name'] for artist in track['artists']])
+                image_url = track['album']['images'][-1]['url'] if track['album']['images'] else None
+                queue_tracks.append({
+                    'name': track['name'],
+                    'artists': artists,
+                    'album': track['album']['name'],
+                    'uri': track['uri'],
+                    'image_url': image_url,
+                    'is_current': False
+                })
+        return {'success': True, 'queue': queue_tracks}
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Spotify get queue error: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+@app.route('/spotify_play_track', methods=['POST'])
+@rate_limit(0.5)
+def spotify_play_track():
+    try:
+        config = load_config()
+        track_uri = request.json.get('track_uri', '').strip()
+        if not track_uri:
+            return {'success': False, 'error': 'No track URI provided'}
+        sp_oauth = SpotifyOAuth(
+            client_id=config["api_keys"]["client_id"],
+            client_secret=config["api_keys"]["client_secret"],
+            redirect_uri=config["api_keys"]["redirect_uri"],
+            scope="user-read-currently-playing user-modify-playback-state user-read-playback-state",
+            cache_path=".spotify_cache"
+        )
+        token_info = sp_oauth.get_cached_token()
+        if not token_info:
+            return {'success': False, 'error': 'Not authenticated with Spotify'}
+        sp = spotipy.Spotify(auth=token_info['access_token'])
+        sp.start_playback(uris=[track_uri])
+        return {'success': True, 'message': 'Track started'}
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Spotify play track error: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+@app.route('/search_results')
+def search_results():
+    config = load_config()
+    ui_config = config.get("ui", {"theme": "dark"})
+    query = request.args.get('query', '')
+    tracks_json = request.args.get('tracks', '[]')
+    try:
+        tracks = json.loads(tracks_json)
+    except:
+        tracks = []
+    return render_template('search_results.html', 
+                        query=query, 
+                        tracks=tracks,
+                        ui_config=ui_config)
+
 @app.route('/clear_song_logs', methods=['POST'])
 def clear_song_logs():
     try:
