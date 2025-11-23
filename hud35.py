@@ -884,27 +884,39 @@ def setup_spotify_oauth():
 
 def fetch_and_store_artist_image(sp, artist_id):
     global artist_image
+    if not artist_id:
+        with artist_image_lock: 
+            artist_image = None
+        return
     max_retries = 3
     for attempt in range(max_retries):
         try:
             artist = sp.artist(artist_id)
             images = artist.get('images', [])
+            if not images:
+                with artist_image_lock: 
+                    artist_image = None
+                return
             url = None
             for img in images:
                 if abs(img['width'] - 150) <= 20 and abs(img['height'] - 150) <= 20:
                     url = img['url']
                     break
-            if not url and images: url = images[-1]['url']
             if not url:
-                with artist_image_lock: artist_image = None
+                url = images[-1]['url']
+            if not url:
+                with artist_image_lock: 
+                    artist_image = None
                 return
             headers = {'User-Agent': 'Mozilla/5.0'}
             resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
-            if 'image' not in resp.headers.get('content-type', '').lower(): raise ValueError("Not an image")
+            if 'image' not in resp.headers.get('content-type', '').lower(): 
+                raise ValueError("Not an image")
             img = Image.open(BytesIO(resp.content)).convert("RGBA")
             img = img.resize((100, 100), Image.BILINEAR)
-            with artist_image_lock: artist_image = img
+            with artist_image_lock: 
+                artist_image = img
             break
         except Exception as e:
             if attempt < max_retries - 1:
@@ -912,8 +924,10 @@ def fetch_and_store_artist_image(sp, artist_id):
                 print(f"🔄 Artist image fetch attempt {attempt + 1} failed: {e}, retrying in {wait_time}s")
                 time.sleep(wait_time)
             else:
-                print(f"❌ Artist image fetch failed after {max_retries} attempts: {e}")
-                with artist_image_lock: artist_image = None
+                if "NoneType" not in str(e):
+                    print(f"⚠️ Artist image fetch failed after {max_retries} attempts: {e}")
+                with artist_image_lock: 
+                    artist_image = None
 
 def write_current_track_state(track_data):
     if not ENABLE_CURRENT_TRACK_DISPLAY:
