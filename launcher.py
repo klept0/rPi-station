@@ -4,7 +4,7 @@ from spotipy.oauth2 import SpotifyOAuth
 from datetime import datetime
 from collections import Counter
 from functools import wraps
-import os, toml, time, requests, subprocess, sys, signal, urllib.parse, socket, logging, threading, json, zlib, pickle, hashlib, spotipy, io, sqlite3, shutil
+import os, toml, time, requests, subprocess, sys, signal, urllib.parse, socket, logging, threading, json, hashlib, spotipy, io, sqlite3, shutil
 
 app = Flask(__name__)
 @app.after_request
@@ -1146,9 +1146,6 @@ def clear_song_logs():
                 cursor.execute('DELETE FROM song_plays')
                 cursor.execute('VACUUM')
                 func.db_conn.commit()
-        for filename in ['song_counts.bin', 'song_mapping.bin', 'song_counts.toml', 'song_counts.bin.tmp']:
-            if os.path.exists(filename):
-                os.remove(filename)
         return 'Song logs cleared', 200
     except Exception as e:
         return f'Error clearing song logs: {str(e)}', 500
@@ -1492,15 +1489,6 @@ def load_song_counts():
         logger = logging.getLogger('Launcher')
         logger.error(f"Error loading song counts: {e}")
         return {}
-
-def save_song_counts(song_counts):
-    try:
-        data = {'song_counts': song_counts}
-        with open('song_counts.toml', 'w') as f:
-            toml.dump(data, f)
-    except Exception as e:
-        logger = logging.getLogger('Launcher')
-        logger.error(f"Error saving song counts: {e}")
 
 def generate_music_stats(song_counts, max_items=1000):
     try:
