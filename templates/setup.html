@@ -1049,6 +1049,26 @@
     }
     setInterval(updateAppStatus, 3000);
     document.addEventListener('DOMContentLoaded', updateAppStatus);
+    document.addEventListener('DOMContentLoaded', function() {
+        const statusMessages = document.querySelectorAll('.status');
+        statusMessages.forEach(message => {
+            let hideTime = 5000;
+            if (message.classList.contains('error')) {
+                hideTime = 10000;
+            } else if (message.classList.contains('warning')) {
+                hideTime = 8000;
+            }
+            setTimeout(() => {
+                message.style.opacity = '0';
+                message.style.transition = 'opacity 0.5s ease';
+                setTimeout(() => {
+                    if (message.parentNode) {
+                        message.remove();
+                    }
+                }, 500);
+            }, hideTime);
+        });
+    });
 </script>
 </body>
 </html>

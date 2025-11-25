@@ -64,6 +64,7 @@ DEFAULT_CONFIG = {
     "wifi": {
         "ap_ssid": "Neonwifi-Manager",
         "ap_ip": "192.168.42.1",
+        "rescan_time": 600
     },
     "auto_start": {
         "auto_start_hud35": True,
@@ -1178,6 +1179,7 @@ def save_advanced_config():
         config["buttons"]["button_y"] = int(request.form.get('button_y', 24))
         config["wifi"]["ap_ssid"] = request.form.get('ap_ssid', 'Neonwifi-Manager')
         config["wifi"]["ap_ip"] = request.form.get('ap_ip', '192.168.42.1')
+        config["wifi"]["rescan_time"] = int(request.form.get('rescan_time', 600))
         config["settings"]["progressbar_display"] = 'progressbar_display' in request.form
         config["settings"]["time_display"] = 'time_display' in request.form
         config["settings"]["start_screen"] = request.form.get('start_screen', 'weather')
@@ -1229,22 +1231,16 @@ def reset_advanced_config():
     config = load_config()
     config["display"] = DEFAULT_CONFIG["display"].copy()
     config["fonts"] = DEFAULT_CONFIG["fonts"].copy()
+    config["api_keys"] = DEFAULT_CONFIG["api_keys"].copy()
+    config["settings"] = DEFAULT_CONFIG["settings"].copy()
+    config["wifi"] = DEFAULT_CONFIG["wifi"].copy()
     config["buttons"] = DEFAULT_CONFIG["buttons"].copy()
-    preserved_api_keys = config["api_keys"].copy()
-    preserved_settings = config["settings"].copy()
-    preserved_auto_start = config.get("auto_start", {}).copy()
+    config["logging"] = DEFAULT_CONFIG["logging"].copy()
+    config["clock"] = DEFAULT_CONFIG["clock"].copy()
     preserved_ui = config.get("ui", {}).copy()
-    config["api_keys"] = preserved_api_keys
-    config["settings"].update({
-        "start_screen": "weather",
-        "progressbar_display": True,
-        "time_display": True,
-        "use_gpsd": True,
-        "use_google_geo": True
-    })
-    config["auto_start"] = preserved_auto_start
-    config["settings"] = preserved_settings
+    preserved_auto_start = config.get("auto_start", {}).copy()
     config["ui"] = preserved_ui
+    config["auto_start"] = preserved_auto_start
     save_config(config)
     flash('success', 'Advanced configuration reset to defaults!')
     return redirect(url_for('advanced_config'))
@@ -1365,15 +1361,16 @@ def update_song_count(song_info):
     current_song = song_info.get('full_track', '').strip()
     if last_logged_song and current_song == last_logged_song:
         return
-    songlock = threading.Lock()
-    with songlock:
+    if not hasattr(update_song_count, 'lock'):
+        update_song_count.lock = threading.Lock()
+    with update_song_count.lock:
         try:
-            if not hasattr(update_song_count, 'db_conn'):
-                update_song_count.db_conn = init_song_database()
+            conn = sqlite3.connect('song_stats.db', check_same_thread=False)
+            cursor = conn.cursor()
             if not song_info or not current_song:
+                conn.close()
                 return
             song_hash = hashlib.md5(current_song.encode('utf-8')).hexdigest()[:16]
-            cursor = update_song_count.db_conn.cursor()
             cursor.execute('''
                 INSERT INTO song_plays (song_hash, song_data, play_count, last_played)
                 VALUES (?, ?, 1, datetime('now'))
@@ -1381,11 +1378,16 @@ def update_song_count(song_info):
                 play_count = play_count + 1,
                 last_played = datetime('now')
             ''', (song_hash, current_song))
-            update_song_count.db_conn.commit()
+            conn.commit()
+            conn.close()
             backup_db_if_needed()
             last_logged_song = current_song
         except Exception as e:
             logger.error(f"Error updating song count: {e}")
+            try:
+                conn.close()
+            except:
+                pass
 
 def get_current_track():
     try:
@@ -1449,27 +1451,30 @@ def get_current_track():
 
 def load_song_counts():
     try:
-        if not hasattr(load_song_counts, 'db_conn'):
-            load_song_counts.db_conn = init_song_database()
-        
-        cursor = load_song_counts.db_conn.cursor()
+        conn = sqlite3.connect('song_stats.db', check_same_thread=False)
+        cursor = conn.cursor()
         cursor.execute('''
             SELECT song_data, play_count 
             FROM song_plays 
             ORDER BY play_count DESC, last_played DESC
             LIMIT 1000
         ''')
-        return dict(cursor.fetchall())
+        result = dict(cursor.fetchall())
+        conn.close()
+        return result
     except Exception as e:
         logger = logging.getLogger('Launcher')
         logger.error(f"Error loading song counts: {e}")
+        try:
+            conn.close()
+        except:
+            pass
         return {}
 
 def generate_music_stats(max_items=1000):
     try:
-        if not hasattr(generate_music_stats, 'db_conn'):
-            generate_music_stats.db_conn = init_song_database()
-        cursor = generate_music_stats.db_conn.cursor()
+        conn = sqlite3.connect('song_stats.db', check_same_thread=False)
+        cursor = conn.cursor()
         cursor.execute('SELECT SUM(play_count), COUNT(*) FROM song_plays')
         total_plays, unique_songs = cursor.fetchone()
         total_plays = total_plays or 0
@@ -1500,10 +1505,15 @@ def generate_music_stats(max_items=1000):
         sorted_artists = sorted(artist_stats.items(), key=lambda x: x[1], reverse=True)
         artist_stats = dict(sorted_artists[:max_items])
         unique_artists = len(all_artists_set)
+        conn.close()
         return song_stats, artist_stats, total_plays, unique_songs, unique_artists
     except Exception as e:
         logger = logging.getLogger('Launcher')
         logger.error(f"Error generating music stats: {e}")
+        try:
+            conn.close()
+        except:
+            pass
         return {}, {}, 0, 0, 0
 
 def generate_chart_data(stats, label_type):
