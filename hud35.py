@@ -1115,7 +1115,6 @@ def spotify_loop():
             update_display()
         return
     last_track_id = None
-    last_art_url = None
     api_error_count = 0
     while not exit_event.is_set():
         current_time = time.time()
@@ -1614,104 +1613,281 @@ def init_waveshare_display():
         traceback.print_exc()
         return None
 
-def draw_waveshare_simple(weather_info, spotify_track):
-    global partial_refresh_count, waveshare_base_image
-    display_width = 250
-    display_height = 122
-    img = Image.new('1', (display_width, display_height), 255)
-    draw = ImageDraw.Draw(img)
-    draw.rectangle([0, 0, display_width-1, display_height-1], outline=0, width=2)
+def load_previous_track_state():
+    global previous_track_id
+    previous_track_id = None
     try:
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
-    except:
-        font_small = ImageFont.load_default()
-        font_medium = ImageFont.load_default()
-        font_large = ImageFont.load_default()
-    content_changed = False
-    current_track_id = None
-    if spotify_track:
-        current_track_id = f"{spotify_track.get('title', '')}_{spotify_track.get('artists', '')}"
-    current_weather_id = None
-    if weather_info:
-        current_weather_id = f"{weather_info.get('city', '')}_{weather_info.get('temp', '')}_{weather_info.get('description', '')}"
-    if not hasattr(draw_waveshare_simple, 'last_track_id'):
-        draw_waveshare_simple.last_track_id = None
-        draw_waveshare_simple.last_weather_id = None
-        content_changed = True
-    if current_track_id != draw_waveshare_simple.last_track_id:
-        content_changed = True
-        draw_waveshare_simple.last_track_id = current_track_id
-    if current_weather_id != draw_waveshare_simple.last_weather_id:
-        content_changed = True
-        draw_waveshare_simple.last_weather_id = current_weather_id
-    album_art_size = 60
-    album_art_x = display_width - album_art_size - 3
-    album_art_y = display_height - album_art_size - 20
-    if spotify_track:
-        artist = spotify_track.get('artists', 'Unknown Artist')
-        title = spotify_track.get('title', 'No Track')
-        with scroll_lock:
-            if not hasattr(draw_waveshare_simple, 'title_scroll_offset'):
-                draw_waveshare_simple.title_scroll_offset = 0
-                draw_waveshare_simple.artist_scroll_offset = 0
-            title_bbox = draw.textbbox((0, 0), title, font=font_medium)
-            title_width = title_bbox[2] - title_bbox[0]
-            scroll_speed = 4
-            if title_width > display_width - 20:
-                total_scroll_distance = title_width + 15
-                draw_waveshare_simple.title_scroll_offset = (draw_waveshare_simple.title_scroll_offset + scroll_speed) % total_scroll_distance
-                title_x = -draw_waveshare_simple.title_scroll_offset
-                draw.text((title_x, 8), title, font=font_medium, fill=0)
-                draw.text((title_x + total_scroll_distance, 8), title, font=font_medium, fill=0)
+        if os.path.exists('.current_track_state.toml'):
+            with open('.current_track_state.toml', 'r') as f:
+                previous_state = toml.load(f)
+                previous_track = previous_state.get('current_track', {})
+                if previous_track.get('title') and previous_track.get('title') != 'No track playing':
+                    previous_track_id = f"{previous_track.get('title', '')}_{previous_track.get('artists', '')}"
+    except Exception as e:
+        pass
+
+def initialize_spotify_client_or_auth():
+    global sp, spotify_track
+    sp = initialize_spotify_client()
+    if sp is None:
+        sp = authenticate_spotify_interactive()
+    if sp is None:
+        spotify_track = {
+            "title": "Spotify Authentication Required",
+            "artists": "Authentication failed - restart to retry",
+            "album": "HUD35 Setup",
+            "current_position": 0,
+            "duration": 1,
+            "is_playing": False,
+            "main_color": (255, 100, 100),
+            "secondary_color": (200, 100, 100)
+        }
+        update_spotify_layout(spotify_track)
+        if START_SCREEN == "spotify":
+            update_display()
+        return False
+    return True
+
+def handle_no_track_playing(current_time, last_successful_write, write_interval):
+    global spotify_track, consecutive_no_track_count
+    consecutive_no_track_count += 1
+    if spotify_track is not None:
+        spotify_track = None
+        with art_lock: 
+            album_art_image = None
+        cleanup_album_art()
+        if current_time - last_successful_write >= write_interval:
+            write_current_track_state(None)
+            last_successful_write = current_time
+        update_spotify_layout(None)
+        if START_SCREEN == "spotify":
+            update_display()
+    return last_successful_write
+
+def fetch_and_process_album_art(art_url, spotify_track, item, is_continuation):
+    global last_art_url, album_art_image
+    if not is_continuation:
+        try:
+            if art_url:
+                max_retries = 2
+                for art_attempt in range(max_retries):
+                    try:
+                        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'}
+                        resp = requests.get(art_url, headers=headers, timeout=15)
+                        resp.raise_for_status()
+                        img = Image.open(BytesIO(resp.content)).convert("RGB")
+                        img.thumbnail((150, 150), Image.LANCZOS)
+                        with art_lock: 
+                            album_art_image = img
+                        save_current_album_art(img)
+                        request_background_generation(img)
+                        album_bg_cache.clear()
+                        main_color, secondary_color = get_contrasting_colors(img)
+                        spotify_track['main_color'] = main_color
+                        spotify_track['secondary_color'] = secondary_color
+                        break
+                    except Exception as e:
+                        if art_attempt < max_retries - 1:
+                            wait_time = (art_attempt + 1) * 2
+                            print(f"🔄 Album art fetch attempt {art_attempt + 1} failed: {e}, retrying in {wait_time}s")
+                            time.sleep(wait_time)
+                        else:
+                            print(f"❌ Album art fetch failed after {max_retries} attempts: {e}")
+                            with art_lock: 
+                                album_art_image = None
+                            spotify_track['main_color'] = (0, 255, 0)
+                            spotify_track['secondary_color'] = (0, 255, 255)
+                last_art_url = art_url
+                save_current_album_art(img)
             else:
-                title_x = (display_width - title_width) // 2
-                draw.text((title_x, 8), title, font=font_medium, fill=0)
-            artist_bbox = draw.textbbox((0, 0), artist, font=font_medium)
-            artist_width = artist_bbox[2] - artist_bbox[0]
-            if artist_width > display_width - 20:
-                total_scroll_distance = artist_width + 20
-                draw_waveshare_simple.artist_scroll_offset = (draw_waveshare_simple.artist_scroll_offset + scroll_speed) % total_scroll_distance
-                artist_x = -draw_waveshare_simple.artist_scroll_offset
-                draw.text((artist_x, 25), artist, font=font_medium, fill=0)
-                draw.text((artist_x + total_scroll_distance, 25), artist, font=font_medium, fill=0)
-            else:
-                artist_x = (display_width - artist_width) // 2
-                draw.text((artist_x, 25), artist, font=font_medium, fill=0)
-        with art_lock:
-            album_img = album_art_image
-        if album_img is not None:
-            bw_album_art = convert_to_1bit_dithered(album_img, (album_art_size, album_art_size))
-            img.paste(bw_album_art, (album_art_x, album_art_y))
+                with art_lock: 
+                    album_art_image = None
+                spotify_track['main_color'] = (0, 255, 0)
+                spotify_track['secondary_color'] = (0, 255, 255)
+                save_current_album_art(None)
+        except Exception as e:
+            print(f"❌ Error loading album art: {e}")
+            with art_lock: 
+                album_art_image = None
+            spotify_track['main_color'] = (0, 255, 0)
+            spotify_track['secondary_color'] = (0, 255, 255)
+        update_spotify_layout(spotify_track)
+        scrolling_text_cache.clear()
+        setup_scrolling_text_for_track(spotify_track)
+        if item.get('artists') and len(item['artists']) > 0:
+            primary_artist_id = item['artists'][0]['id']
+            Thread(target=fetch_and_store_artist_image, args=(sp, primary_artist_id), daemon=True).start()
     else:
-        if hasattr(draw_waveshare_simple, 'title_scroll_offset'):
-            draw_waveshare_simple.title_scroll_offset = 0
-            draw_waveshare_simple.artist_scroll_offset = 0
-        draw.text((5, 8), "No music playing", font=font_medium, fill=0)
-    if weather_info:
-        weather_icon_x = 8
-        weather_icon_y = display_height - 55
-        if weather_info and "cached_icon" in weather_info and weather_info["cached_icon"] is not None:
-            try:
-                img.paste(weather_info["cached_icon"], (weather_icon_x, weather_icon_y))
-            except Exception as e:
-                print(f"Error pasting cached weather icon: {e}")
-        temp_text = f"{weather_info['temp']}°C"
-        draw.text((45, display_height - 55), temp_text, font=font_large, fill=0)
-        feels_like_text = f"Feels: {weather_info['feels_like']}°C"
-        draw.text((45, display_height - 35), feels_like_text, font=font_small, fill=0)
-        desc_text = weather_info['description'][:15]
-        draw.text((45, display_height - 20), desc_text, font=font_small, fill=0)
-    now = datetime.datetime.now().strftime("%H:%M")
-    time_bbox = draw.textbbox((0, 0), now, font=font_medium)
-    time_width = time_bbox[2] - time_bbox[0]
-    time_height = time_bbox[3] - time_bbox[1]
-    clock_x = display_width - time_width - 5
-    clock_y = display_height - time_height - 8
-    draw.text((clock_x, clock_y), now, font=font_medium, fill=0)
-    img.content_changed = content_changed
-    return img
+        if album_art_image:
+            main_color, secondary_color = get_contrasting_colors(album_art_image)
+            spotify_track['main_color'] = main_color
+            spotify_track['secondary_color'] = secondary_color
+        else:
+            spotify_track['main_color'] = (0, 255, 0)
+            spotify_track['secondary_color'] = (0, 255, 255)
+        update_spotify_layout(spotify_track)
+
+def setup_scrolling_text_for_track(track_data):
+    for key in ['title', 'artists', 'album']:
+        data = track_data.get(key, "")
+        if data:
+            text_bbox = get_cached_text_bbox(data, SPOT_MEDIUM_FONT)
+            text_width = text_bbox[2] - text_bbox[0]
+            label_text = "Track:" if key == "title" else "Artists:" if key == "artists" else "Album:"
+            label_bbox = get_cached_text_bbox(label_text, SPOT_MEDIUM_FONT)
+            label_width = label_bbox[2] - label_bbox[0]
+            visible_width = SCREEN_WIDTH - 5 - label_width - 6
+            if text_width > visible_width:
+                scrolling_img = create_scrolling_text_image(data, SPOT_MEDIUM_FONT, track_data['main_color'], text_width * 2 + 50)
+                scrolling_text_cache[key] = scrolling_img
+                with scroll_lock:
+                    scroll_state[key]["active"] = True
+                    scroll_state[key]["max_offset"] = text_width + 50
+                    scroll_state[key]["offset"] = 0
+            else:
+                with scroll_lock:
+                    scroll_state[key]["active"] = False
+                    scroll_state[key]["max_offset"] = 0
+                    scroll_state[key]["offset"] = 0
+
+def handle_track_update(current_time, last_successful_write, write_interval, track, last_track_id, is_first_track_after_startup, previous_track_id):
+    global spotify_track, consecutive_no_track_count, last_art_url
+    consecutive_no_track_count = 0
+    item = track['item']
+    current_id = item.get('id')
+    artists_list = [artist['name'] for artist in item.get('artists', [])]
+    artist_str = ", ".join(artists_list) if artists_list else "Unknown Artist"
+    album_str = item['album']['name'] if item.get('album') else "Unknown Album"
+    current_position = track.get('progress_ms', 0) // 1000
+    duration = item.get('duration_ms', 0) // 1000
+    is_playing = track.get('is_playing', False)
+    new_track = {
+        "title": item.get('name', "Unknown Track"),
+        "artists": artist_str,
+        "album": album_str,
+        "current_position": current_position,
+        "duration": duration,
+        "is_playing": is_playing
+    }
+    current_track_id = f"{new_track['title']}_{new_track['artists']}"
+    is_continuation = (is_first_track_after_startup and previous_track_id and current_track_id == previous_track_id)
+    track_changed = current_id != last_track_id or spotify_track is None
+    art_url = None
+    if item.get('album') and item['album'].get('images'):
+        art_url = item['album']['images'][0]['url']
+    art_changed = art_url != last_art_url
+    if track_changed or art_changed or spotify_track is None:
+        spotify_track = new_track
+        update_activity()
+        if current_time - last_successful_write >= write_interval:
+            write_current_track_state(spotify_track)
+            last_successful_write = current_time
+        fetch_and_process_album_art(art_url, spotify_track, item, is_continuation)
+        last_track_id = current_id
+        is_first_track_after_startup = False
+        if START_SCREEN == "spotify":
+            update_display()
+    else:
+        old_playing_state = spotify_track.get('is_playing', False) if spotify_track else False
+        spotify_track['current_position'] = current_position
+        spotify_track['is_playing'] = is_playing
+        playing_state_changed = is_playing != old_playing_state
+        if playing_state_changed and is_playing:
+            update_activity()
+        should_write = False
+        if playing_state_changed:
+            should_write = True
+        elif is_playing and current_time - last_successful_write >= write_interval:
+            should_write = True
+        elif not is_playing and current_time - last_successful_write >= 0.5:
+            should_write = True
+        if START_SCREEN == "spotify":
+            update_display()
+        if should_write:
+            write_current_track_state(spotify_track)
+            last_successful_write = current_time
+    return last_successful_write, last_track_id, is_first_track_after_startup
+
+def handle_spotify_api_errors(e, api_error_count):
+    global spotify_track, last_api_call
+    if e.http_status == 429:
+        print("⚠️ Spotify API rate limit hit, backing off for 60 seconds...")
+        time.sleep(60)
+        last_api_call = time.time() 
+    elif e.http_status == 401:
+        print("🔑 Spotify token expired, requiring re-authentication")
+        try:
+            os.remove(".spotify_cache")
+        except:
+            pass
+        spotify_track = None
+        update_spotify_layout(None)
+        if START_SCREEN == "spotify":
+            update_display()
+        return False
+    else:
+        print(f"🎵 Spotify API error (attempt {api_error_count}): {e}")
+        last_api_call = time.time()
+    return True
+
+def spotify_loop():
+    global START_SCREEN, spotify_track, sp, album_art_image, scrolling_text_cache, last_art_url, last_api_call
+    last_successful_write = 0
+    write_interval = 0.5
+    base_track_check_interval = 2
+    idle_check_interval = 30
+    last_api_call = 0
+    last_art_url = None
+    consecutive_no_track_count = 0
+    max_consecutive_no_track = 15
+    current_check_interval = base_track_check_interval
+    previous_track_id = None
+    load_previous_track_state()
+    is_first_track_after_startup = True
+    if not initialize_spotify_client_or_auth():
+        return
+    last_track_id = None
+    api_error_count = 0
+    while not exit_event.is_set():
+        current_time = time.time()
+        if api_error_count > 0:
+            current_check_interval = min(10 * (2 ** min(api_error_count-1, 2)), 60)
+        elif spotify_track and spotify_track.get('is_playing', False):
+            current_check_interval = base_track_check_interval
+            consecutive_no_track_count = 0
+        else:
+            if consecutive_no_track_count >= max_consecutive_no_track:
+                current_check_interval = idle_check_interval
+            else:
+                current_check_interval = base_track_check_interval
+        time_since_last_api = current_time - last_api_call
+        if time_since_last_api < current_check_interval:
+            time.sleep(0.1)
+            continue
+        try:
+            last_api_call = current_time
+            track = sp.current_user_playing_track()
+            api_error_count = 0
+            if not track or not track.get('item'):
+                last_successful_write = handle_no_track_playing(current_time, last_successful_write, write_interval)
+                continue
+            last_successful_write, last_track_id, is_first_track_after_startup = handle_track_update(current_time, last_successful_write, write_interval, track, last_track_id, is_first_track_after_startup, previous_track_id)
+        except spotipy.exceptions.SpotifyException as e:
+            api_error_count += 1
+            if not handle_spotify_api_errors(e, api_error_count):
+                return
+        except requests.exceptions.Timeout:
+            api_error_count += 1
+            print(f"⏰ Spotify API timeout (attempt {api_error_count}), will retry with backoff")
+            last_api_call = time.time()
+        except requests.exceptions.ConnectionError as e:
+            api_error_count += 1
+            print(f"🔌 Spotify connection error (attempt {api_error_count}): {e}")
+            last_api_call = time.time()
+        except Exception as e:
+            api_error_count += 1
+            print(f"❌ Unexpected Spotify error (attempt {api_error_count}): {e}")
+            last_api_call = time.time()
 
 def convert_to_1bit_dithered(album_art_img, size=(40, 40)):
     if album_art_img is None:
@@ -1837,10 +2013,6 @@ def cleanup_scroll_state():
         for key in scroll_state:
             scroll_state[key]["offset"] = 0
             scroll_state[key]["active"] = False
-        if hasattr(draw_waveshare_simple, 'title_scroll_offset'):
-            draw_waveshare_simple.title_scroll_offset = 0
-        if hasattr(draw_waveshare_simple, 'artist_scroll_offset'):
-            draw_waveshare_simple.artist_scroll_offset = 0
 
 def display_image_on_dummy():
     pass
