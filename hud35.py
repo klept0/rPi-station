@@ -198,7 +198,6 @@ else:
     TEXT_SCROLL_FPS = 15
 ANIMATION_FRAME_TIME = 1.0 / ANIMATION_FPS
 TEXT_SCROLL_FRAME_TIME = 1.0 / TEXT_SCROLL_FPS
-SLEEP_TIMEOUT = 300
 LARGE_FONT = ImageFont.truetype(config["fonts"]["large_font_path"], config["fonts"]["large_font_size"])
 MEDIUM_FONT = ImageFont.truetype(config["fonts"]["medium_font_path"], config["fonts"]["medium_font_size"])
 SMALL_FONT = ImageFont.truetype(config["fonts"]["small_font_path"], config["fonts"]["small_font_size"])
@@ -215,6 +214,8 @@ FALLBACK_CITY = config["settings"]["fallback_city"]
 USE_GPSD = config["settings"]["use_gpsd"]
 USE_GOOGLE_GEO = config["settings"]["use_google_geo"]
 TIME_DISPLAY = config["settings"]["time_display"]
+SLEEP_TIMEOUT = config["settings"]["sleep_timeout"]
+WAKEUP_CHECK_INTERVAL = config["settings"].get("wakeup_check_interval", 15)
 PROGRESSBAR_DISPLAY = config["settings"]["progressbar_display"]
 ENABLE_CURRENT_TRACK_DISPLAY = config["settings"]["enable_current_track_display"]
 FRAMEBUFFER = config["settings"]["framebuffer"]
@@ -229,7 +230,6 @@ MIN_DISPLAY_INTERVAL = 0.001
 DEBOUNCE_TIME = 0.3
 UPDATE_INTERVAL_WEATHER = 3600
 GEO_UPDATE_INTERVAL = 900
-SLEEP_TIMEOUT = config["settings"]["sleep_timeout"]
 
 def get_cached_bg(bg_path, size):
     key = (bg_path, size)
@@ -1298,7 +1298,7 @@ def save_current_album_art(album_art_image, track_data=None):
         if current_hash == last_saved_album_art_hash:
             return
         display_size = (300, 300)
-        resized_art = album_art_image.resize(display_size, Image.LANCZOS)
+        resized_art = album_art_image.resize(display_size, Image.NEAREST)
         resized_art.save('static/current_album_art.jpg', 'JPEG', quality=85)
         last_saved_album_art_hash = current_hash
     except Exception as e:
@@ -1465,7 +1465,7 @@ def fetch_and_process_album_art(art_url, spotify_track, item, is_continuation):
                         resp = requests.get(art_url, headers=headers, timeout=15)
                         resp.raise_for_status()
                         img = Image.open(BytesIO(resp.content)).convert("RGB")
-                        img.thumbnail((150, 150), Image.LANCZOS)
+                        img.thumbnail((150, 150), Image.NEAREST)
                         with art_lock: 
                             album_art_image = img
                         save_current_album_art(img)
@@ -1612,7 +1612,7 @@ def handle_spotify_api_errors(e, api_error_count):
     return True
 
 def spotify_loop():
-    global START_SCREEN, spotify_track, sp, album_art_image, scrolling_text_cache, last_art_url, last_api_call
+    global START_SCREEN, spotify_track, sp, album_art_image, scrolling_text_cache, last_art_url, last_api_call, consecutive_no_track_count
     last_successful_write = 0
     write_interval = 0.5
     base_track_check_interval = 2
@@ -1811,17 +1811,48 @@ def update_activity():
     if display_sleeping:
         display_sleeping = False
 
-def check_display_sleep():
+def check_sleep_state():
     global display_sleeping, START_SCREEN
-    if START_SCREEN != "spotify" or (spotify_track and spotify_track.get('is_playing', False)):
+    if START_SCREEN != "spotify":
+        if display_sleeping:
+            wake_up_display()
+        return
+    current_time = time.time()
+    music_playing = spotify_track and spotify_track.get('is_playing', False)
+    if display_sleeping:
+        if music_playing:
+            wake_up_display()
+    else:
+        if not music_playing and current_time - last_activity_time >= SLEEP_TIMEOUT:
+            go_to_sleep()
+
+def wake_up_display():
+    global display_sleeping
+    if display_sleeping:
+        display_sleeping = False
         update_activity()
-        return False
-    if time.time() - last_activity_time >= SLEEP_TIMEOUT and not display_sleeping:
-        sleep_timeout = SLEEP_TIMEOUT
-        print(f"🛑 Display sleeping due to {sleep_timeout}s inactivity")
+        update_display()
+
+def go_to_sleep():
+    global display_sleeping
+    if not display_sleeping:
         display_sleeping = True
-        return True
-    return display_sleeping
+        print(f"🛑 Display sleeping due to {SLEEP_TIMEOUT}s of no playback")
+        clear_framebuffer()
+
+def sleep_monitor_loop():
+    last_sleep_check = 0
+    while not exit_event.is_set():
+        current_time = time.time()
+        if display_sleeping:
+            if current_time - last_sleep_check >= WAKEUP_CHECK_INTERVAL:
+                check_sleep_state()
+                last_sleep_check = current_time
+            time.sleep(1)
+        else:
+            check_sleep_state()
+            last_sleep_check = current_time
+            time.sleep(5)
 
 def signal_handler(sig, frame):
     print(f"Received signal {sig}, shutting down quickly...")
@@ -1838,6 +1869,7 @@ def main():
     Thread(target=handle_buttons, daemon=True).start()
     Thread(target=animate_images, daemon=True).start()
     Thread(target=animate_text_scroll, daemon=True).start()
+    Thread(target=sleep_monitor_loop, daemon=True).start() 
     update_display()
     screen_update_intervals = {
         "weather": 30.0,
@@ -1847,14 +1879,12 @@ def main():
     last_display_update = 0
     try:
         while not exit_event.is_set():
-            check_display_sleep()
             current_time = time.time()
             current_interval = screen_update_intervals.get(START_SCREEN, 1.0)
-            if current_time - last_display_update >= current_interval:
+            if not display_sleeping and current_time - last_display_update >= current_interval:
                 update_display()
                 last_display_update = current_time
-            sleep_time = max(0.1, current_interval * 0.5)
-            time.sleep(sleep_time)
+            time.sleep(0.1) 
     except KeyboardInterrupt:
         print("\nShutting down...")
     finally:
