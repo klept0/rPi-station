@@ -490,11 +490,9 @@ def search_lyrics_for_track(track_name, artist_name):
             'artist_name': artist_name
         }
         logger = logging.getLogger('Launcher')
-        logger.info(f"Calling LRCLib API: {params}")
         response = requests.get(api_url, params=params, timeout=10)
         if response.status_code == 200:
             results = response.json()
-            logger.info(f"LRCLib returned {len(results)} results")
             if results:
                 first_result = results[0]
                 lyrics_id = first_result.get('id')
@@ -919,10 +917,7 @@ def get_current_track_lyrics():
         artist_name = current_track['artist']
         if '(' in artist_name:
             artist_name = artist_name.split('(')[0].strip()
-        logger = logging.getLogger('Launcher')
-        logger.info(f"Searching lyrics for: {track_name} by {artist_name}")
         result = search_lyrics_for_track(track_name, artist_name)
-        logger.info(f"Lyrics search result: {result.get('success', False)}")
         return result
     except Exception as e:
         logger = logging.getLogger('Launcher')
