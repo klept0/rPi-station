@@ -4,45 +4,45 @@
     <title>NeonDisplay Launcher</title>
     <style>
         :root {
-            --bg-primary: #1a1a1a;
-            --bg-secondary: #2d2d2d;
-            --bg-tertiary: #3d3d3d;
-            --text-primary: #ffffff;
-            --text-secondary: #b0b0b0;
-            --accent-color: #007bff;
-            --accent-hover: #0056b3;
-            --border-color: #444444;
-            --success-bg: #155724;
-            --success-border: #c3e6cb;
-            --error-bg: #721c24;
-            --error-border: #f5c6cb;
-            --warning-bg: #856404;
-            --warning-border: #ffeaa7;
-            --info-bg: #004085;
-            --info-border: #b3d7ff;
+            --bg-primary: #1a0000;
+            --bg-secondary: #4d4d00;
+            --bg-tertiary: #330000;
+            --text-primary: #ffff00;
+            --text-secondary: #ffcc00;
+            --accent-color: #ff0000;
+            --accent-hover: #cc0000;
+            --border-color: #ff0000;
+            --success-bg: #4d4d00;
+            --success-border: #ffff00;
+            --error-bg: #660000;
+            --error-border: #ff0000;
+            --warning-bg: #663300;
+            --warning-border: #ff6600;
+            --info-bg: #330000;
+            --info-border: #ff0000;
         }
         [data-theme="light"] {
-            --bg-primary: #ffffff;
-            --bg-secondary: #f8f9fa;
-            --bg-tertiary: #e9ecef;
-            --text-primary: #212529;
-            --text-secondary: #6c757d;
-            --accent-color: #007bff;
-            --accent-hover: #0056b3;
-            --border-color: #dee2e6;
-            --success-bg: #d4edda;
-            --success-border: #c3e6cb;
-            --error-bg: #f8d7da;
-            --error-border: #f5c6cb;
-            --warning-bg: #fff3cd;
-            --warning-border: #ffeaa7;
-            --info-bg: #cce7ff;
-            --info-border: #b3d7ff;
+            --bg-primary: #ffff00;
+            --bg-secondary: #ff0000;
+            --bg-tertiary: #ffcc00;
+            --text-primary: #000000;
+            --text-secondary: #4d0000;
+            --accent-color: #ff0000;
+            --accent-hover: #cc0000;
+            --border-color: #000000;
+            --success-bg: #ff0000;
+            --success-border: #000000;
+            --error-bg: #990000;
+            --error-border: #000000;
+            --warning-bg: #ff6600;
+            --warning-border: #000000;
+            --info-bg: #ff6666;
+            --info-border: #000000;
         }
         body { 
             font-family: Arial, sans-serif; 
-            max-width: 800px; 
-            margin: 0 auto; 
+            max-width: 100%;
+            margin: 0;
             padding: 20px;
             background: var(--bg-primary);
             color: var(--text-primary);
@@ -51,9 +51,10 @@
         .container {
             background: var(--bg-secondary);
             padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            border: 1px solid var(--border-color);
+            border-radius: 0;
+            box-shadow: none;
+            border: 3px solid var(--border-color);
+            max-width: 100%;
         }
         h1 { 
             text-align: center; 
