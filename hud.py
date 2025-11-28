@@ -1294,13 +1294,10 @@ def save_current_album_art(album_art_image, track_data=None):
                 os.remove('static/current_album_art.jpg')
                 last_saved_album_art_hash = None
             return
-        current_hash = hash(album_art_image.tobytes())
-        if current_hash == last_saved_album_art_hash:
-            return
         display_size = (300, 300)
         resized_art = album_art_image.resize(display_size, Image.NEAREST)
         resized_art.save('static/current_album_art.jpg', 'JPEG', quality=85)
-        last_saved_album_art_hash = current_hash
+        last_saved_album_art_hash = hash(album_art_image.tobytes())
     except Exception as e:
         print(f"❌ Error saving album art for web: {e}")
 

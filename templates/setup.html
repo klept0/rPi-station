@@ -445,6 +445,10 @@
                     ⏭️ Next
                 </button>
             </div>
+            <button type="button" class="btn-secondary" onclick="toggleLyricsDropdown()" title="Show Lyrics">📝 Lyrics</button>
+                <div id="lyricsContent" style="max-height: 300px; overflow-y: auto; padding: 10px; background: var(--bg-secondary); border-radius: 5px; white-space: pre-line; line-height: 1.4;"></div>
+                <div id="lyricsStatus" class="status" style="display: none; margin-top: 10px;"></div>
+            </div>
             <div class="volume-control" style="display: flex; align-items: center; gap: 10px; margin-top: 15px;">
                 <label for="volumeSlider" style="color: var(--text-primary); min-width: 80px;">Volume:</label>
                 <input type="range" id="volumeSlider" min="0" max="100" value="50" 
@@ -535,15 +539,14 @@
     let albumArtRefreshTimer = null;
     let lastAlbumArtUpdate = 0;
     const MIN_ALBUM_ART_UPDATE_INTERVAL = 5000;
+    let lyricsCache = {}; 
+    let lyricsDropdownOpen = false;
+    let currentLyricsTrack = '';
+    let lastLyricsFetch = 0;
+    const LYRICS_COOLDOWN = 1000;
+
     function getRateLimitForAction(action) {
-        const limits = {
-            'play': 2500,
-            'pause': 1500,
-            'next': 800,
-            'previous': 800,
-            'volume': 300,
-            'seek': 800
-        };
+        const limits = {'play': 2500,'pause': 1500,'next': 800,'previous': 800,'volume': 300,'seek': 800};
         return limits[action] || 1000;
     }
     function canMakeRequest(action) {
@@ -575,12 +578,6 @@
         document.body.appendChild(form);
         form.submit();
     }
-    document.addEventListener('DOMContentLoaded', function() {
-        const savedTheme = '{{ ui_config.theme }}' || 'dark';
-        document.body.setAttribute('data-theme', savedTheme);
-        const button = document.querySelector('.theme-toggle');
-        button.innerHTML = savedTheme === 'dark' ? '☀️' : '🌙';
-    });
     function setupCurrentTrackSSE() {
         const eventSource = new EventSource('/stream/current_track');
         eventSource.onmessage = function(event) {
@@ -609,29 +606,10 @@
             albumArtPlaceholder.style.display = 'flex';
         }
     }
-    function updateCurrentTrackDisplay(trackData) {
-        const now = Date.now();
-        if (trackData.has_track && trackData.song !== 'No track playing') {
-            updateTrackInfo(trackData);
-            const trackIdentifier = trackData.song + '|' + trackData.artist;
-            const shouldUpdateArt = trackIdentifier !== currentTrackForArt && 
-                                (now - lastAlbumArtUpdate) > MIN_ALBUM_ART_UPDATE_INTERVAL;
-            if (shouldUpdateArt) {
-                currentTrackForArt = trackIdentifier;
-                lastAlbumArtUpdate = now;
-                if (albumArtRefreshTimer) {
-                    clearTimeout(albumArtRefreshTimer);
-                }
-                albumArtRefreshTimer = setTimeout(() => {
-                    const albumArtImg = document.getElementById('albumArtImg');
-                    if (albumArtImg) {
-                        albumArtImg.src = '/current_album_art?ts=' + now + '&rand=' + Math.random();
-                    }
-                }, 1000);
-            }
-        } else {
-            currentTrackForArt = '';
-            updateNoTrackDisplay();
+    function refreshAlbumArt() {
+        const albumArtImg = document.getElementById('albumArtImg');
+        if (albumArtImg) {
+            albumArtImg.src = '/current_album_art?ts=' + Date.now() + '&rand=' + Math.random();
         }
     }
     function updateTrackInfo(trackData) {
@@ -665,7 +643,7 @@
             } else {
                 span.textContent = text;
             }
-}
+        }
         updateLine(trackTitle, trackData.song);
         updateLine(trackArtist, trackData.artist);
         updateLine(trackAlbum, trackData.album);
@@ -690,6 +668,156 @@
         }
         updateControlButtonsFromTrack(trackData);
     }
+    function updateCurrentTrackDisplay(trackData) {
+        const now = Date.now();
+        if (trackData.has_track && trackData.song && trackData.song !== 'No track playing') {
+            updateTrackInfo(trackData);
+            const trackIdentifier = trackData.song + '|' + trackData.artist;
+            if (trackIdentifier !== currentTrackForArt) {
+                currentTrackForArt = trackIdentifier;
+                lastAlbumArtUpdate = now;
+                refreshAlbumArt();
+                if (albumArtRefreshTimer) {
+                    clearTimeout(albumArtRefreshTimer);
+                }
+                albumArtRefreshTimer = setTimeout(refreshAlbumArt, 1000);
+                if (lyricsDropdownOpen) {
+                    fetchCurrentLyrics(false);
+                }
+            }
+        } else {
+            currentTrackForArt = '';
+            currentLyricsTrack = '';
+            updateNoTrackDisplay();
+            if (lyricsDropdownOpen) {
+                const lyricsContent = document.getElementById('lyricsContent');
+                if (lyricsContent) {
+                    lyricsContent.innerHTML = 'No track currently playing';
+                }
+            }
+        }
+    }
+    function toggleLyricsDropdown() {
+        const lyricsContent = document.getElementById('lyricsContent');
+        const lyricsStatus = document.getElementById('lyricsStatus');
+        const lyricsSectionDiv = lyricsContent ? lyricsContent.parentNode : null;
+        let lyricsHeader = null;
+        if (lyricsSectionDiv) {
+            for (let i = 0; i < lyricsSectionDiv.children.length; i++) {
+                const child = lyricsSectionDiv.children[i];
+                if (child.id !== 'lyricsContent' && child.id !== 'lyricsStatus' && child.querySelector('h3')) {
+                    lyricsHeader = child;
+                    break;
+                }
+            }
+        }
+        lyricsDropdownOpen = !lyricsDropdownOpen;
+        const button = document.querySelector('button[onclick="toggleLyricsDropdown()"]');
+        if (button) {
+            button.innerHTML = lyricsDropdownOpen ? '📝 Hide Lyrics' : '📝 Lyrics';
+        }
+        if (lyricsContent) {
+            if (lyricsDropdownOpen) {
+                lyricsContent.style.display = 'block';
+                if (lyricsStatus) lyricsStatus.style.display = 'block';
+                if (lyricsHeader) lyricsHeader.style.display = 'flex'; 
+                fetchCurrentLyrics(false);
+            } else {
+                lyricsContent.style.display = 'none';
+                if (lyricsStatus) lyricsStatus.style.display = 'none';
+                if (lyricsHeader) lyricsHeader.style.display = 'none'; 
+            }
+        }
+    }
+    function fetchCurrentLyrics(force = false) {
+        const now = Date.now();
+        if (!force && (now - lastLyricsFetch < LYRICS_COOLDOWN)) {
+            return;
+        }
+        const lyricsContent = document.getElementById('lyricsContent');
+        const lyricsStatus = document.getElementById('lyricsStatus');
+        if (!lyricsContent) return;
+        const trackTitle = document.getElementById('trackTitle')?.dataset?.currentText || '';
+        const trackArtist = document.getElementById('trackArtist')?.dataset?.currentText || '';
+        if (!trackTitle || !trackArtist || trackTitle === 'No track currently playing') {
+            lyricsContent.innerHTML = 'No track currently playing';
+            if (lyricsStatus) lyricsStatus.style.display = 'none';
+            return;
+        }
+        const trackIdentifier = `${trackTitle}|${trackArtist}`;
+        if (!force && lyricsCache[trackIdentifier]) {
+            lyricsContent.innerHTML = lyricsCache[trackIdentifier].content;
+            if (lyricsCache[trackIdentifier].statusText && lyricsStatus) {
+                lyricsStatus.textContent = lyricsCache[trackIdentifier].statusText;
+                lyricsStatus.className = lyricsCache[trackIdentifier].statusClass;
+                lyricsStatus.style.display = 'block';
+            } else if (lyricsStatus) {
+                lyricsStatus.style.display = 'none';
+            }
+            currentLyricsTrack = trackIdentifier;
+            return;
+        }
+        if (!force && trackIdentifier === currentLyricsTrack && 
+            lyricsContent.innerHTML && 
+            !lyricsContent.innerHTML.includes('Loading') &&
+            !lyricsContent.innerHTML.includes('Error')) {
+            return;
+        }
+        lyricsContent.innerHTML = 'Loading lyrics...';
+        if (lyricsStatus) lyricsStatus.style.display = 'none';
+        lastLyricsFetch = now;
+        currentLyricsTrack = trackIdentifier; 
+        fetch('/lyrics/current')
+            .then(response => response.json())
+            .then(data => {
+                if (trackIdentifier !== currentLyricsTrack) {
+                    return;
+                }
+                let content = '';
+                let statusText = '';
+                let statusClass = '';
+                if (data.success) {
+                    const lyricsSource = data.plain_lyrics && data.plain_lyrics.trim() ? data.plain_lyrics : data.lyrics;
+                    if (lyricsSource && lyricsSource.trim()) {
+                        const cleanLyrics = lyricsSource
+                            .replace(/\[\d{2}:\d{2}\.\d{2,3}\]/g, '')
+                            .replace(/\n/g, '<br>');
+                        content = cleanLyrics;
+                    } else {
+                        content = 'No lyrics available for this track.';
+                    }
+                } else {
+                    content = 'No lyrics available for this track.';
+                    if (data.error) {
+                        statusText = `Info: ${data.error}`;
+                        statusClass = 'status warning';
+                    }
+                }
+                lyricsCache[trackIdentifier] = {
+                    content: content,
+                    statusText: statusText,
+                    statusClass: statusClass
+                };
+                lyricsContent.innerHTML = content;
+                if (statusText && lyricsStatus) {
+                    lyricsStatus.textContent = statusText;
+                    lyricsStatus.className = statusClass;
+                    lyricsStatus.style.display = 'block';
+                } else if (lyricsStatus) {
+                    lyricsStatus.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Lyrics error:', error);
+                if (trackIdentifier !== currentLyricsTrack) return; 
+                lyricsContent.innerHTML = 'Error loading lyrics. Please try again.';
+                if (lyricsStatus) {
+                    lyricsStatus.textContent = `Error: ${error.message}`;
+                    lyricsStatus.className = 'status error';
+                    lyricsStatus.style.display = 'block';
+                }
+            });
+    }
     function updateNoTrackDisplay() {
         const trackTitle = document.getElementById('trackTitle');
         const trackArtist = document.getElementById('trackArtist');
@@ -700,9 +828,18 @@
         const progressBar = document.getElementById('progressBar');
         const albumArtImg = document.getElementById('albumArtImg');
         const albumArtPlaceholder = document.getElementById('albumArtPlaceholder');
-        if (trackTitle) trackTitle.textContent = 'No track currently playing';
-        if (trackArtist) trackArtist.textContent = '';
-        if (trackAlbum) trackAlbum.textContent = '';
+        if (trackTitle) {
+            trackTitle.dataset.currentText = 'No track currently playing';
+            trackTitle.innerHTML = '<span>No track currently playing</span>';
+        }
+        if (trackArtist) {
+            trackArtist.dataset.currentText = '';
+            trackArtist.innerHTML = '<span></span>';
+        }
+        if (trackAlbum) {
+            trackAlbum.dataset.currentText = '';
+            trackAlbum.innerHTML = '<span></span>';
+        }
         if (trackStatus) {
             trackStatus.textContent = '';
             trackStatus.className = 'track-status';
@@ -717,6 +854,7 @@
             albumArtImg.style.display = 'none';
             albumArtPlaceholder.style.display = 'flex';
         }
+        
         resetControlButtons();
     }
     function getCurrentVolume() {
@@ -987,34 +1125,6 @@
             pauseBtn.style.display = 'none';
         }
     }
-    document.addEventListener('DOMContentLoaded', function() {
-        {% if config.settings.enable_current_track_display %}
-        setupCurrentTrackSSE();
-        fetch('/api/current_track')
-            .then(response => response.json())
-            .then(data => {
-                updateCurrentTrackDisplay(data.track);
-            })
-            .catch(error => {
-                console.error('Error fetching initial track:', error);
-            });
-        {% endif %}
-        const progressContainer = document.getElementById('progressBarContainer');
-        if (progressContainer) {
-            progressContainer.addEventListener('click', seekToPosition);
-        }
-        const volumeSlider = document.getElementById('volumeSlider');
-        if (volumeSlider) {
-            getCurrentVolume().then(currentVolume => {
-                volumeSlider.value = currentVolume;
-                const volumeValue = document.getElementById('volumeValue');
-                if (volumeValue) {
-                    volumeValue.textContent = currentVolume + '%';
-                }
-            });
-        }
-        resetControlButtons();
-    });
     function updateAppStatus() {
         fetch('/status/hud')
             .then(response => response.json())
@@ -1048,8 +1158,39 @@
             .catch(error => console.error('Error fetching neonwifi status:', error));
     }
     setInterval(updateAppStatus, 3000);
-    document.addEventListener('DOMContentLoaded', updateAppStatus);
     document.addEventListener('DOMContentLoaded', function() {
+        const savedTheme = '{{ ui_config.theme }}' || 'dark';
+        document.body.setAttribute('data-theme', savedTheme);
+        const themeButton = document.querySelector('.theme-toggle');
+        if (themeButton) {
+            themeButton.innerHTML = savedTheme === 'dark' ? '☀️' : '🌙';
+        }
+        {% if config.settings.enable_current_track_display and spotify_authenticated %}
+        setupCurrentTrackSSE();
+        fetch('/api/current_track')
+            .then(response => response.json())
+            .then(data => {
+                updateCurrentTrackDisplay(data.track);
+            })
+            .catch(error => {
+                console.error('Error fetching initial track:', error);
+            });
+        {% endif %}
+        const progressContainer = document.getElementById('progressBarContainer');
+        if (progressContainer) {
+            progressContainer.addEventListener('click', seekToPosition);
+        }
+        const volumeSlider = document.getElementById('volumeSlider');
+        if (volumeSlider) {
+            getCurrentVolume().then(currentVolume => {
+                volumeSlider.value = currentVolume;
+                const volumeValue = document.getElementById('volumeValue');
+                if (volumeValue) {
+                    volumeValue.textContent = currentVolume + '%';
+                }
+            });
+        }
+        resetControlButtons();
         const statusMessages = document.querySelectorAll('.status');
         statusMessages.forEach(message => {
             let hideTime = 5000;
@@ -1068,6 +1209,25 @@
                 }, 500);
             }, hideTime);
         });
+        const lyricsContent = document.getElementById('lyricsContent');
+        const parentSection = lyricsContent ? lyricsContent.parentNode : null;
+        if (parentSection && !parentSection.querySelector('h3')) {
+            const header = document.createElement('div');
+            header.style.display = 'flex'; 
+            header.style.justifyContent = 'space-between';
+            header.style.alignItems = 'center';
+            header.style.marginBottom = '10px';
+            const title = document.createElement('h3');
+            title.style.margin = '0';
+            title.innerHTML = '🎵 Lyrics';
+            header.appendChild(title);
+            parentSection.insertBefore(header, lyricsContent);
+            header.style.display = 'none'; 
+        }
+        if (lyricsContent) {
+            lyricsContent.style.display = 'none';
+        }
+        updateAppStatus();
     });
 </script>
 </body>

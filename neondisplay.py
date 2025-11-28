@@ -481,6 +481,49 @@ def stop_neonwifi():
         logger.error(f"Error stopping neonwifi: {str(e)}")
         return False, f"Error stopping neonwifi: {str(e)}"
 
+
+def search_lyrics_for_track(track_name, artist_name):
+    try:
+        api_url = "https://lrclib.net/api/search"
+        params = {
+            'track_name': track_name,
+            'artist_name': artist_name
+        }
+        logger = logging.getLogger('Launcher')
+        logger.info(f"Calling LRCLib API: {params}")
+        response = requests.get(api_url, params=params, timeout=10)
+        if response.status_code == 200:
+            results = response.json()
+            logger.info(f"LRCLib returned {len(results)} results")
+            if results:
+                first_result = results[0]
+                lyrics_id = first_result.get('id')
+                if lyrics_id:
+                    lyrics_response = requests.get(f"https://lrclib.net/api/get/{lyrics_id}", timeout=10)
+                    if lyrics_response.status_code == 200:
+                        lyrics_data = lyrics_response.json()
+                        return {
+                            'success': True,
+                            'lyrics': lyrics_data.get('syncedLyrics', ''),
+                            'plain_lyrics': lyrics_data.get('plainLyrics', ''),
+                            'track_name': lyrics_data.get('trackName', track_name),
+                            'artist_name': lyrics_data.get('artistName', artist_name),
+                            'album_name': lyrics_data.get('albumName', ''),
+                            'duration': lyrics_data.get('duration', 0)
+                        }
+            return {'success': False, 'error': 'No lyrics found for this track'}
+        else:
+            logger.error(f"LRCLib API error: {response.status_code}")
+            return {'success': False, 'error': f'API returned status code {response.status_code}'}
+    except requests.RequestException as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Lyrics search network error: {e}")
+        return {'success': False, 'error': f'Network error: {str(e)}'}
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Lyrics search unexpected error: {e}")
+        return {'success': False, 'error': f'Unexpected error: {str(e)}'}
+
 @app.route('/status/hud')
 def status_hud():
     return {'running': is_hud_running()}
@@ -833,6 +876,58 @@ def current_album_art():
             return send_file(img_io, mimetype='image/jpeg')
         except:
             return "Album art not available", 404
+
+@app.route('/lyrics/search')
+def search_lyrics():
+    track_name = request.args.get('track_name', '').strip()
+    artist_name = request.args.get('artist_name', '').strip()
+    if not track_name or not artist_name:
+        return {'success': False, 'error': 'Track name and artist name are required'}
+    try:
+        api_url = f"https://lrclib.net/api/search"
+        params = {'track_name': track_name,'artist_name': artist_name}
+        response = requests.get(api_url, params=params, timeout=10)
+        if response.status_code == 200:
+            results = response.json()
+            if results:
+                first_result = results[0]
+                lyrics_id = first_result.get('id')
+                if lyrics_id:
+                    lyrics_response = requests.get(f"https://lrclib.net/api/get/{lyrics_id}", timeout=10)
+                    if lyrics_response.status_code == 200:
+                        lyrics_data = lyrics_response.json()
+                        return {'success': True,'lyrics': lyrics_data.get('syncedLyrics', ''),'plain_lyrics': lyrics_data.get('plainLyrics', ''),'track_name': lyrics_data.get('trackName', track_name),'artist_name': lyrics_data.get('artistName', artist_name),'album_name': lyrics_data.get('albumName', ''),'duration': lyrics_data.get('duration', 0)}
+            return {'success': False, 'error': 'No lyrics found for this track'}
+        else:
+            return {'success': False, 'error': f'API returned status code {response.status_code}'}
+    except requests.RequestException as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Lyrics search error: {e}")
+        return {'success': False, 'error': f'Network error: {str(e)}'}
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Lyrics search unexpected error: {e}")
+        return {'success': False, 'error': f'Unexpected error: {str(e)}'}
+
+@app.route('/lyrics/current')
+def get_current_track_lyrics():
+    try:
+        current_track = get_current_track()
+        if not current_track.get('has_track') or current_track.get('song') in ['No track playing', 'Error loading track']:
+            return {'success': False, 'error': 'No track currently playing'}
+        track_name = current_track['song']
+        artist_name = current_track['artist']
+        if '(' in artist_name:
+            artist_name = artist_name.split('(')[0].strip()
+        logger = logging.getLogger('Launcher')
+        logger.info(f"Searching lyrics for: {track_name} by {artist_name}")
+        result = search_lyrics_for_track(track_name, artist_name)
+        logger.info(f"Lyrics search result: {result.get('success', False)}")
+        return result
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Current track lyrics error: {e}")
+        return {'success': False, 'error': f'Error getting current track lyrics: {str(e)}'}
 
 @app.route('/spotify_play', methods=['POST'])
 @rate_limit(0.5)
