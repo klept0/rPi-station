@@ -111,10 +111,13 @@ setup-display:
 		exit 1; \
 	fi
 	@echo "$(GREEN)Installing LCD display drivers...$(NC)"
-	git clone https://github.com/Shinigamy19/RaspberryPi3bplus-3.5inch-displayA-ILI9486-MPI3501-XPT2046   $(LCD_SHOW_DIR)
-	mv $(LCD_SHOW_DIR) LCD-show
-	cd LCD-show && chmod +x ./*
-	sudo ./LCD35-show
+	@if [ -d "$(LCD_SHOW_DIR)" ]; then \
+		echo "$(YELLOW)Existing LCD-show directory found; removing for a clean install...$(NC)"; \
+		rm -rf "$(LCD_SHOW_DIR)"; \
+	fi
+	git clone https://github.com/Shinigamy19/RaspberryPi3bplus-3.5inch-displayA-ILI9486-MPI3501-XPT2046 $(LCD_SHOW_DIR)
+	cd $(LCD_SHOW_DIR) && chmod +x ./*
+	cd $(LCD_SHOW_DIR) && sudo ./LCD35-show
 
 setup-service:
 	@echo "$(GREEN)Setting up systemd service...$(NC)"
