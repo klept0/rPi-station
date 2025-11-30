@@ -1460,9 +1460,8 @@ def regenerate_overlay_token():
         logger.error(f"Failed to regenerate overlay token: {e}")
         return {'error': 'failed'}, 500
 
-
     @app.route('/rotate_overlay_key', methods=['POST'])
-    def rotate_overlay_key():
+def rotate_overlay_key():
         """Rotate the overlay encryption key and re-encrypt stored overlay token.
         This will generate a new key file and re-encrypt the token into `overlay.encrypted_token`.
         Returns the new token plaintext in response if available.
@@ -1498,9 +1497,9 @@ def regenerate_overlay_token():
             return {'error': 'failed'}, 500
 
 
-    @app.route('/events', methods=['POST'])
-    @rate_limiter(max_calls=120, period=60)
-    def ingest_event():
+@app.route('/events', methods=['POST'])
+@rate_limiter(max_calls=120, period=60)
+def ingest_event():
         """Endpoint for HUD (local) to POST events for streaming to overlay clients."""
         global recent_events, event_condition
         # If overlay is enabled, require a shared token to accept posts
@@ -1584,26 +1583,25 @@ def regenerate_overlay_token():
             return 'error', 500
 
 
-    def event_stream_generator():
-        last_sent_index = 0
-        while True:
-            with event_condition:
-                if len(recent_events) <= last_sent_index:
-                    event_condition.wait(timeout=15)
-                # send any new events
-                while last_sent_index < len(recent_events):
-                    ev = recent_events[last_sent_index]
-                    last_sent_index += 1
-                    yield f"data: {json.dumps(ev)}\n\n"
+def event_stream_generator():
+    last_sent_index = 0
+    while True:
+        with event_condition:
+            if len(recent_events) <= last_sent_index:
+                event_condition.wait(timeout=15)
+            while last_sent_index < len(recent_events):
+                ev = recent_events[last_sent_index]
+                last_sent_index += 1
+                yield f"data: {json.dumps(ev)}\n\n"
 
 
-    @app.route('/event_stream')
-    def event_stream():
-        return Response(event_stream_generator(), mimetype='text/event-stream')
+@app.route('/event_stream')
+def event_stream():
+    return Response(event_stream_generator(), mimetype='text/event-stream')
 
 
-    @app.route('/notifications')
-    def list_notifications():
+@app.route('/notifications')
+def list_notifications():
         """Return a JSON list of recent notifications for HUD to fetch."""
         try:
             conn = init_notifications_db()
@@ -1652,8 +1650,8 @@ def regenerate_overlay_token():
             return {'notifications': []}
 
 
-    @app.route('/notifications/filters')
-    def notifications_filters():
+@app.route('/notifications/filters')
+def notifications_filters():
         try:
             conn = init_notifications_db()
             with _db_lock:
@@ -1667,8 +1665,8 @@ def regenerate_overlay_token():
             return {'sources': [], 'types': []}
 
 
-    @app.route('/notifications/clear', methods=['POST'])
-    def clear_notifications():
+@app.route('/notifications/clear', methods=['POST'])
+def clear_notifications():
         try:
             conn = init_notifications_db()
             with _db_lock:
@@ -1683,8 +1681,8 @@ def regenerate_overlay_token():
             return {'success': False, 'error': str(e)}, 500
 
 
-    @app.route('/notifications/<int:notif_id>', methods=['DELETE'])
-    def delete_notification(notif_id):
+@app.route('/notifications/<int:notif_id>', methods=['DELETE'])
+def delete_notification(notif_id):
         try:
             conn = init_notifications_db()
             with _db_lock:
@@ -1698,8 +1696,8 @@ def regenerate_overlay_token():
             return {'success': False, 'error': str(e)}, 500
 
 
-    @app.route('/notifications/ui')
-    def notifications_ui():
+@app.route('/notifications/ui')
+def notifications_ui():
         try:
             conn = init_notifications_db()
             page = int(request.args.get('page', 1))
@@ -1981,9 +1979,9 @@ def xbox_status():
 
 
 
-    @app.route('/device_notify', methods=['POST'])
-    @rate_limiter(max_calls=180, period=60)
-    def device_notify():
+@app.route('/device_notify', methods=['POST'])
+@rate_limiter(max_calls=180, period=60)
+def device_notify():
         """A dedicated endpoint for Wyze, Konnected, Xbox (or other) webhooks.
         The payload should contain a `source` or `service` field identifying the origin.
         Token checking and local-only checks apply similar to `/events`.
@@ -1998,7 +1996,7 @@ def xbox_status():
         source = (data.get('source') or data.get('service') or data.get('source_name') or '').lower()
         # map source to service configs
         service_cfg = services_cfg.get(source, {}) if source else None
-        if service_cfg:
+    if service_cfg:
             expected_token = service_cfg.get('webhook_token')
             if service_cfg.get('enabled', False):
                 if expected_token:
@@ -2030,7 +2028,7 @@ def xbox_status():
                         except Exception as e:
                             logger = logging.getLogger('Launcher')
                             logger.warning(f"Wyze snapshot fetch failed: {e}")
-        else:
+    else:
             # fallback to overlay token if configured
             overlay_cfg = cfg.get('overlay', {})
             if overlay_cfg.get('enabled'):
@@ -2050,7 +2048,7 @@ def xbox_status():
                 # If no overlay and no service mapping, reject
                 return 'No service configured', 403
         # now normalize and add to events
-        ev = {'type': 'device_notify', 'timestamp': int(time.time()), 'payload': data}
+    ev = {'type': 'device_notify', 'timestamp': int(time.time()), 'payload': data}
         if source:
             ev['source'] = source
         # Konnected: parse sensors field into readable message
@@ -2078,7 +2076,7 @@ def xbox_status():
             except Exception:
                 pass
         # enqueue and notify
-        with event_condition:
+    with event_condition:
             # check overlay event type preferences
             overlay_cfg = cfg.get('overlay', {})
             overlay_events = overlay_cfg.get('events', {})
@@ -2090,25 +2088,23 @@ def xbox_status():
                 recent_events = recent_events[-30:]
             event_condition.notify_all()
         # also store in notifications
-        try:
+    try:
             notifs = globals().get('notifications', [])
             notifs.append(ev)
             globals()['notifications'] = notifs[-30:]
-        except Exception:
+    except Exception:
             pass
         # persist notifications
-        try:
+    try:
             store_notification(ev)
-        except Exception:
+    except Exception:
             pass
-        except Exception:
-            pass
-        return 'ok', 200
+    return 'ok', 200
 
 
-    @app.route('/overlay')
-    def overlay():
-        return render_template('overlay.html')
+@app.route('/overlay')
+def overlay():
+    return render_template('overlay.html')
 
 @app.route('/save_advanced_config', methods=['POST'])
 def save_advanced_config():
@@ -2456,32 +2452,27 @@ def update_song_count(song_info):
     if not hasattr(update_song_count, 'lock'):
         update_song_count.lock = threading.Lock()
     with update_song_count.lock:
-        with _db_lock:
         try:
-            conn = init_song_database()
-            if not conn:
-                return
-            cursor = conn.cursor()
-            if not song_info or not current_song:
-                conn.close()
-                return
-            song_hash = hashlib.md5(current_song.encode('utf-8')).hexdigest()[:16]
-            cursor.execute('''
-                INSERT INTO song_plays (song_hash, song_data, play_count, last_played)
-                VALUES (?, ?, 1, datetime('now'))
-                ON CONFLICT(song_hash) DO UPDATE SET 
-                play_count = play_count + 1,
-                last_played = datetime('now')
-            ''', (song_hash, current_song))
-            conn.commit()
-            backup_db_if_needed()
-            last_logged_song = current_song
+            with _db_lock:
+                conn = init_song_database()
+                if not conn:
+                    return
+                cursor = conn.cursor()
+                if not song_info or not current_song:
+                    return
+                song_hash = hashlib.md5(current_song.encode('utf-8')).hexdigest()[:16]
+                cursor.execute('''
+                    INSERT INTO song_plays (song_hash, song_data, play_count, last_played)
+                    VALUES (?, ?, 1, datetime('now'))
+                    ON CONFLICT(song_hash) DO UPDATE SET 
+                    play_count = play_count + 1,
+                    last_played = datetime('now')
+                ''', (song_hash, current_song))
+                conn.commit()
+                backup_db_if_needed()
+                last_logged_song = current_song
         except Exception as e:
             logger.error(f"Error updating song count: {e}")
-            try:
-                conn.close()
-            except:
-                pass
 
 def get_current_track():
     try:
