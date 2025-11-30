@@ -23,16 +23,35 @@ all: system-deps python-packages config setup-service
 
 system-deps:
 	@echo "$(GREEN)Installing system dependencies...$(NC)"
-	sudo apt update
-	sudo apt install -y python3-pip python3-venv curl hostapd dnsmasq
-	sudo apt install -y libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev git
-	sudo apt install -y liblcms2-dev libwebp-dev libtiff-dev libopenjp2-7-dev libxcb1-dev
-	sudo apt install -y libopenblas-dev libcairo2-dev libdbus-1-dev
+	@if command -v apt >/dev/null 2>&1; then \
+		sudo apt update; \
+		sudo apt install -y python3-pip python3-venv curl hostapd dnsmasq; \
+		sudo apt install -y libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev git; \
+		sudo apt install -y liblcms2-dev libwebp-dev libtiff-dev libopenjp2-7-dev libxcb1-dev; \
+		sudo apt install -y libopenblas-dev libcairo2-dev libdbus-1-dev; \
+	else \
+		echo "$(YELLOW)apt not found; skipping Debian/Raspbian packages$(NC)"; \
+	fi
 	@echo "$(GREEN)Installing uv system-wide...$(NC)"
-	curl -LsSf https://astral.sh/uv/install.sh | sh
-	sudo mv /root/.local/bin/uv /usr/local/bin/
-	sudo mv /root/.local/bin/uvx /usr/local/bin/
-	@echo "$(GREEN)System dependencies installed$(NC)"
+	curl -LsSf https://astral.sh/uv/install.sh | sh || true
+	@if [ -x "$${HOME}/.local/bin/uv" ]; then \
+		sudo mv "$${HOME}/.local/bin/uv" /usr/local/bin/ 2>/dev/null || true; \
+	fi
+	@if [ -x "/root/.local/bin/uv" ]; then \
+		sudo mv /root/.local/bin/uv /usr/local/bin/ 2>/dev/null || true; \
+	fi
+	@if [ -x "$${HOME}/.local/bin/uvx" ]; then \
+		sudo mv "$${HOME}/.local/bin/uvx" /usr/local/bin/ 2>/dev/null || true; \
+	fi
+	@if [ -x "/root/.local/bin/uvx" ]; then \
+		sudo mv /root/.local/bin/uvx /usr/local/bin/ 2>/dev/null || true; \
+	fi
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "$(YELLOW)uv not found in PATH. You can install via Homebrew: brew install uv, or use pipx to manage it.$(NC)"; \
+	else \
+		echo "$(GREEN)uv installed$(NC)"; \
+	fi
+	@echo "$(GREEN)System dependencies step completed$(NC)"
 
 python-packages:
 	@echo "$(GREEN)Setting up Python virtual environment with uv...$(NC)"
