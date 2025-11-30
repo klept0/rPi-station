@@ -302,11 +302,12 @@ The web UI exposes a Notifications page that lists recent events received via ov
 http://[raspberry-pi-ip]:5000/notifications/ui
 ```
 
-From the Notifications page, you can clear or delete individual notifications, which are persisted in a SQLite database `neon_notifications.db` located in the application directory.
+From the Notifications page, you can filter by source and type, change page size, view multiple pages of history, and clear or delete individual notifications. Notifications are persisted in a SQLite database named `neon_notifications.db` located in the application directory.
 
 ## ⚙️ Additional Notes
 
 - To enable Xbox presence with Microsoft Graph API, add your Xbox client id and secret in `Advanced Configuration`, then use the new "Connect Xbox" flow to authorize and obtain tokens.
+  - After connecting, you can disconnect via the `Disconnect Xbox` button in Advanced Configuration.
 
 # Xbox Graph OAuth Quick Steps
 
@@ -327,5 +328,11 @@ Overlay tokens and webhook tokens are stored in `config.toml` by default. If you
 3. To rotate the encryption key, use the `Rotate Key` button next to the token controls (this will re-encrypt the token with a new key and return the plaintext token in the UI once so you can update places relying on the token).
 
 Important: both the HUD and the neondisplay server must have permission to read the key file so that HUD can post overlay events locally; rotate keys carefully and keep backups if needed.
+
+If you prefer environment-based key storage (suitable for automated deployments):
+
+1. In Advanced Configuration, set `Key source` to Environment Variable and enter the env var name (default `OVERLAY_SECRET_KEY`).
+2. Set the environment variable on your machine (e.g., `export OVERLAY_SECRET_KEY=$(python - <<'PY' ; from cryptography.fernet import Fernet; print(Fernet.generate_key().decode()); PY)`), then reload or restart the service so the key is present for the process.
+3. Regenerate the overlay token in the UI to have it encrypted with the env key.
 
 If you'd like, I can now implement the Xbox Microsoft Graph OAuth integration (OAuth + refresh handling), add a Notifications management UI backed by a DB, and add an overlay token encryption feature (Fernet-based) — tell me if you'd like me to proceed with those in that order.

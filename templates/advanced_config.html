@@ -263,6 +263,9 @@
                                 config.services.wyze.enabled %}checked{% endif %}>
                             <label for="wyze_enabled">Enable Wyze webhook listener</label>
                         </div>
+                        <div id="xbox_status_box" style="margin-top:10px;">
+                            <div id="xbox_status_display"></div>
+                        </div>
                         <label for="wyze_webhook_token">Wyze webhook token</label>
                         <input type="text" id="wyze_webhook_token" name="wyze_webhook_token"
                             value="{{ config.services.wyze.webhook_token }}">
@@ -302,6 +305,9 @@
                                     Xbox</button></a>
                             {% if config.services.xbox.refresh_token or config.services.xbox.access_token %}
                             <div class="status success">Connected</div>
+                            <form method="POST" action="/xbox_disconnect" style="display:inline; margin-left:10px;">
+                                <button type="submit" class="btn-danger">Disconnect Xbox</button>
+                            </form>
                             {% else %}
                             <div class="status">Not connected</div>
                             {% endif %}
@@ -535,7 +541,25 @@
                                     <label for="overlay_encrypt">Encrypt overlay token at rest</label>
                                 </div>
                                 <small>Encrypt the overlay token on disk using a generated key file in
-                                    `secrets/overlay_key.key` (stored with limited file permissions).</small>
+                                    `secrets/overlay_key.key` (stored with limited file permissions) or use an
+                                    environment variable to store the key (recommended for automated
+                                    deployments).</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="overlay_key_source">Key source:</label>
+                                <select id="overlay_key_source" name="overlay_key_source">
+                                    <option value="file" {% if not config.overlay.get('key_source') or
+                                        config.overlay.get('key_source')=='file' %}selected{% endif %}>File
+                                        (secrets/overlay_key.key)</option>
+                                    <option value="env" {% if config.overlay.get('key_source')=='env' %}selected{% endif
+                                        %}>Environment Variable</option>
+                                </select>
+                                <div id="env_key_name_group" style="display:none; margin-top:6px;">
+                                    <label for="overlay_env_key_name">Env var name:</label>
+                                    <input type="text" id="overlay_env_key_name" name="overlay_env_key_name"
+                                        value="{{ config.overlay.get('env_key_name', 'OVERLAY_SECRET_KEY') }}">
+                                    <small>Name of environment variable containing the base64 Fernet key</small>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label>Overlay event types</label>
@@ -929,6 +953,34 @@
         document.addEventListener('DOMContentLoaded', function () {
             updateDisplayConfig();
             document.getElementById('display_type').addEventListener('change', updateDisplayConfig);
+            // show/hide env key input based on key_source
+            const keySource = document.getElementById('overlay_key_source');
+            const envKeyGroup = document.getElementById('env_key_name_group');
+            if (keySource) {
+                function updateKeySourceVisibility() {
+                    if (keySource.value === 'env') {
+                        envKeyGroup.style.display = 'block';
+                    } else {
+                        envKeyGroup.style.display = 'none';
+                    }
+                }
+                keySource.addEventListener('change', updateKeySourceVisibility);
+                updateKeySourceVisibility();
+            }
+            // Update Xbox status box if present
+            const xboxStatusDisplay = document.getElementById('xbox_status_display');
+            if (xboxStatusDisplay) {
+                async function refreshXboxStatus() {
+                    try {
+                        const r = await fetch('/xbox_status');
+                        if (!r.ok) return;
+                        const d = await r.json();
+                        xboxStatusDisplay.innerText = `Connected: ${d.connected} | Enabled: ${d.enabled} | Last presence: ${d.last_presence ? JSON.stringify(d.last_presence) : 'N/A'}`;
+                    } catch (e) {
+                    }
+                }
+                refreshXboxStatus();
+            }
         });
     </script>
 </body>

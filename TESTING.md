@@ -35,8 +35,9 @@ python3 neondisplay.py
 ```
 
 2. In the web UI (`http://[raspberry-pi-ip]:5000`), go to `Advanced Configuration` and do the following:
- - Set `Overlay` enabled and `Overlay token` (or click `Regenerate`).
- - Optionally enable `Encrypt overlay token at rest` and hit `Save`.
+
+- Set `Overlay` enabled and `Overlay token` (or click `Regenerate`).
+- Optionally enable `Encrypt overlay token at rest` and hit `Save`.
 
 - (Optional) Wire Wyze or Konnected webhooks to `http://[device-ip]:5000/device_notify` with a configured `X-Webhook-Token`.
 
@@ -63,6 +64,31 @@ curl -X POST http://[device-ip]:5000/device_notify -H "X-Webhook-Token: <wyze_to
 ```
 
 6. Use `Notifications` from the web UI to view and clear events.
+
+### Environment-based Overlay Encryption (optional)
+
+1. Set the environment key on the system that runs the launcher:
+
+```bash
+export OVERLAY_SECRET_KEY=$(python - <<'PY'
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode())
+PY)
+```
+
+2. In the web UI, enable `Encrypt overlay token at rest` and set `Key source` to `Environment Variable`, and set Env var name to match (default `OVERLAY_SECRET_KEY`).
+3. Regenerate or set a token, and verify overlay posting works locally by running the curl example from step 4.
+
+### Xbox Connect/Disconnect (manual)
+
+1. In Advanced Configuration, fill Xbox Client ID/Secret and click `Connect Xbox`. Once authorized, a token will be saved.
+2. Test Xbox status in the UI or use the status endpoint:
+
+```bash
+curl http://127.0.0.1:5000/xbox_status
+```
+
+3. To disconnect, press `Disconnect Xbox` in the UI or call `/xbox_disconnect` to clear tokens.
 
 ## Notes & Troubleshooting
 

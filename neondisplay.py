@@ -382,11 +382,20 @@ def get_spotify_client():
                 enc = overlay_cfg.get('encrypted_token')
                 if not HAS_CRYPTO:
                     return None
-                key_path = os.path.join('secrets', 'overlay_key.key')
-                if not os.path.exists(key_path):
-                    return None
-                with open(key_path, 'rb') as kf:
-                    k = kf.read()
+                key_source = overlay_cfg.get('key_source', 'file')
+                if key_source == 'env':
+                    env_key_name = overlay_cfg.get('env_key_name', 'OVERLAY_SECRET_KEY')
+                    k = os.environ.get(env_key_name)
+                    if not k:
+                        return None
+                    if isinstance(k, str):
+                        k = k.encode('utf-8')
+                else:
+                    key_path = os.path.join('secrets', 'overlay_key.key')
+                    if not os.path.exists(key_path):
+                        return None
+                    with open(key_path, 'rb') as kf:
+                        k = kf.read()
                 f = Fernet(k)
                 try:
                     token = f.decrypt(enc.encode('utf-8')).decode('utf-8')
@@ -1362,22 +1371,38 @@ def advanced_config():
             new_token = secrets.token_hex(16)
             # If overlay token encryption is enabled, encrypt it and store 'encrypted_token' instead
             encrypt_tokens = cfg.get('overlay', {}).get('encrypted', False)
+            key_source = cfg.get('overlay', {}).get('key_source', 'file')
+            env_key_name = cfg.get('overlay', {}).get('env_key_name', 'OVERLAY_SECRET_KEY')
             if encrypt_tokens and HAS_CRYPTO:
-                key_path = os.path.join('secrets', 'overlay_key.key')
-                os.makedirs('secrets', exist_ok=True)
-                if not os.path.exists(key_path):
-                    k = Fernet.generate_key()
-                    with open(key_path, 'wb') as kf:
-                        kf.write(k)
-                    os.chmod(key_path, 0o600)
+                if key_source == 'env':
+                    # Use env key value
+                    env_key = os.environ.get(env_key_name)
+                    if env_key:
+                        k = env_key.encode('utf-8') if isinstance(env_key, str) else env_key
+                        f = Fernet(k)
+                        enc = f.encrypt(new_token.encode('utf-8'))
+                        cfg['overlay']['encrypted_token'] = enc.decode('utf-8')
+                        cfg['overlay']['token'] = ''
+                    else:
+                        # Cannot encrypt without key in env
+                        # store as plaintext so user can copy and set env var, but warn
+                        cfg['overlay']['token'] = new_token
                 else:
-                    with open(key_path, 'rb') as kf:
-                        k = kf.read()
-                f = Fernet(k)
-                enc = f.encrypt(new_token.encode('utf-8'))
-                cfg['overlay']['encrypted_token'] = enc.decode('utf-8')
-                # keep token blank to avoid accidental exposure
-                cfg['overlay']['token'] = ''
+                    key_path = os.path.join('secrets', 'overlay_key.key')
+                    os.makedirs('secrets', exist_ok=True)
+                    if not os.path.exists(key_path):
+                        k = Fernet.generate_key()
+                        with open(key_path, 'wb') as kf:
+                            kf.write(k)
+                        os.chmod(key_path, 0o600)
+                    else:
+                        with open(key_path, 'rb') as kf:
+                            k = kf.read()
+                    f = Fernet(k)
+                    enc = f.encrypt(new_token.encode('utf-8'))
+                    cfg['overlay']['encrypted_token'] = enc.decode('utf-8')
+                    # keep token blank to avoid accidental exposure
+                    cfg['overlay']['token'] = ''
             else:
                 cfg['overlay']['token'] = new_token
             # Persist
@@ -1527,7 +1552,25 @@ def advanced_config():
             conn = init_notifications_db()
             with _db_lock:
                 cursor = conn.cursor()
-                cursor.execute('SELECT id, created_ts, source, type, payload FROM notifications ORDER BY created_ts DESC LIMIT 50')
+                page = int(request.args.get('page', 1))
+                per_page = int(request.args.get('per_page', 25))
+                source_filter = request.args.get('source')
+                type_filter = request.args.get('type')
+                offset = (max(1, page) - 1) * max(1, per_page)
+                query = 'SELECT id, created_ts, source, type, payload FROM notifications'
+                params = []
+                where = []
+                if source_filter:
+                    where.append('source = ?')
+                    params.append(source_filter)
+                if type_filter:
+                    where.append('type = ?')
+                    params.append(type_filter)
+                if where:
+                    query += ' WHERE ' + ' AND '.join(where)
+                query += ' ORDER BY created_ts DESC LIMIT ? OFFSET ?'
+                params.extend([max(1, per_page), offset])
+                cursor.execute(query, tuple(params))
                 rows = cursor.fetchall()
             notifs = []
             for r in rows:
@@ -1536,9 +1579,35 @@ def advanced_config():
                 except Exception:
                     payload = {}
                 notifs.append({'id': r[0], 'timestamp': r[1], 'source': r[2], 'type': r[3], 'payload': payload})
-            return {'notifications': notifs}
+            # Provide a total count for paging if filters present
+            try:
+                with _db_lock:
+                    cursor2 = conn.cursor()
+                    count_query = 'SELECT COUNT(*) FROM notifications'
+                    if where:
+                        count_query += ' WHERE ' + ' AND '.join(where)
+                    cursor2.execute(count_query, tuple(params[:-2]) if params else ())
+                    total_count = cursor2.fetchone()[0]
+            except Exception:
+                total_count = len(notifs)
+            return {'notifications': notifs, 'total': total_count}
         except Exception:
             return {'notifications': []}
+
+
+    @app.route('/notifications/filters')
+    def notifications_filters():
+        try:
+            conn = init_notifications_db()
+            with _db_lock:
+                cursor = conn.cursor()
+                cursor.execute('SELECT DISTINCT source FROM notifications ORDER BY source')
+                sources = [r[0] for r in cursor.fetchall() if r[0]]
+                cursor.execute('SELECT DISTINCT type FROM notifications ORDER BY type')
+                types = [r[0] for r in cursor.fetchall() if r[0]]
+            return {'sources': sources, 'types': types}
+        except Exception:
+            return {'sources': [], 'types': []}
 
 
     @app.route('/notifications/clear', methods=['POST'])
@@ -1576,9 +1645,33 @@ def advanced_config():
     def notifications_ui():
         try:
             conn = init_notifications_db()
+            page = int(request.args.get('page', 1))
+            per_page = int(request.args.get('per_page', 25))
+            source_filter = request.args.get('source')
+            type_filter = request.args.get('type')
+            offset = (max(1, page) - 1) * max(1, per_page)
             with _db_lock:
                 cursor = conn.cursor()
-                cursor.execute('SELECT id, created_ts, source, type, payload FROM notifications ORDER BY created_ts DESC LIMIT 200')
+                params = []
+                where = []
+                if source_filter:
+                    where.append('source = ?')
+                    params.append(source_filter)
+                if type_filter:
+                    where.append('type = ?')
+                    params.append(type_filter)
+                # Count total
+                count_query = 'SELECT COUNT(*) FROM notifications'
+                if where:
+                    count_query += ' WHERE ' + ' AND '.join(where)
+                cursor.execute(count_query, tuple(params))
+                total = cursor.fetchone()[0]
+                query = 'SELECT id, created_ts, source, type, payload FROM notifications'
+                if where:
+                    query += ' WHERE ' + ' AND '.join(where)
+                query += ' ORDER BY created_ts DESC LIMIT ? OFFSET ?'
+                params.extend([max(1, per_page), offset])
+                cursor.execute(query, tuple(params))
                 rows = cursor.fetchall()
             items = []
             for r in rows:
@@ -1588,7 +1681,14 @@ def advanced_config():
                     payload = {}
                 items.append({'id': r[0], 'timestamp': r[1], 'source': r[2], 'type': r[3], 'payload': payload})
             ui_config = load_config().get('ui', {'theme': 'dark'})
-            return render_template('notifications.html', notifications=items, ui_config=ui_config)
+            # fetch distinct filters for UI
+            with _db_lock:
+                cursor2 = conn.cursor()
+                cursor2.execute('SELECT DISTINCT source FROM notifications ORDER BY source')
+                sources = [r[0] for r in cursor2.fetchall() if r[0]]
+                cursor2.execute('SELECT DISTINCT type FROM notifications ORDER BY type')
+                types = [r[0] for r in cursor2.fetchall() if r[0]]
+            return render_template('notifications.html', notifications=items, ui_config=ui_config, sources=sources, types=types, page=page, per_page=per_page, total=total, source_filter=source_filter or '', type_filter=type_filter or '')
         except Exception as e:
             logger = logging.getLogger('Launcher')
             logger.error(f"Failed to render notifications UI: {e}")
@@ -1598,6 +1698,8 @@ def advanced_config():
 def xbox_polling_loop():
     logger = logging.getLogger('Launcher')
     last_presence = None
+    # make last presence available across module
+    globals()['last_xbox_presence'] = None
     while True:
         try:
             cfg = load_config()
@@ -1636,6 +1738,7 @@ def xbox_polling_loop():
                         notifs.append(ev)
                         globals()['notifications'] = notifs[-30:]
                         last_presence = presence
+                        globals()['last_xbox_presence'] = {'presence': presence, 'timestamp': int(time.time()), 'data': data}
                 except Exception as e:
                     logger.debug(f"Xbox Graph poll error: {e}")
             elif presence_url:
@@ -1655,6 +1758,7 @@ def xbox_polling_loop():
                         notifs.append(ev)
                         globals()['notifications'] = notifs[-30:]
                         last_presence = presence
+                        globals()['last_xbox_presence'] = {'presence': presence, 'timestamp': int(time.time()), 'data': data}
                 except Exception as e:
                     logger.debug(f"Xbox poll error: {e}")
             time.sleep(interval)
@@ -1785,6 +1889,38 @@ def xbox_callback():
         logger.error(f"Xbox callback error: {e}")
         flash('error', 'Xbox callback handling failed')
     return redirect(url_for('advanced_config'))
+
+
+@app.route('/xbox_disconnect', methods=['POST'])
+def xbox_disconnect():
+    try:
+        cfg = load_config()
+        if 'services' in cfg and 'xbox' in cfg['services']:
+            cfg['services']['xbox'].pop('access_token', None)
+            cfg['services']['xbox'].pop('refresh_token', None)
+            cfg['services']['xbox'].pop('token_expires_at', None)
+            cfg['services']['xbox']['enabled'] = False
+            save_config(cfg)
+        return {'success': True, 'message': 'Xbox disconnected'}, 200
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Xbox disconnect failed: {e}")
+        return {'success': False, 'error': str(e)}, 500
+
+
+@app.route('/xbox_status')
+def xbox_status():
+    cfg = load_config()
+    xbox_cfg = cfg.get('services', {}).get('xbox', {})
+    status = {
+        'enabled': xbox_cfg.get('enabled', False),
+        'client_id': bool(xbox_cfg.get('client_id')),
+        'connected': bool(xbox_cfg.get('access_token') or xbox_cfg.get('refresh_token')),
+        'presence_url': xbox_cfg.get('presence_url'),
+        'poll_interval': xbox_cfg.get('poll_interval', 60),
+        'last_presence': globals().get('last_xbox_presence', None)
+    }
+    return status
 
 
 
@@ -1979,6 +2115,8 @@ def save_advanced_config():
         config['overlay']['enabled'] = 'overlay_enabled' in request.form
         # Token encryption toggle
         config['overlay']['encrypted'] = 'overlay_encrypt' in request.form
+        config['overlay']['key_source'] = request.form.get('overlay_key_source', 'file')
+        config['overlay']['env_key_name'] = request.form.get('overlay_env_key_name', 'OVERLAY_SECRET_KEY')
         given_token = request.form.get('overlay_token', '').strip()
         if given_token:
             config['overlay']['token'] = given_token
@@ -1991,22 +2129,37 @@ def save_advanced_config():
         # If token encryption is enabled, encrypt the token and store 'encrypted_token' instead
         if config['overlay'].get('encrypted', False) and HAS_CRYPTO:
             token_to_encrypt = config['overlay'].get('token')
+            key_source = config['overlay'].get('key_source', 'file')
+            env_name = config['overlay'].get('env_key_name', 'OVERLAY_SECRET_KEY')
             if token_to_encrypt:
-                key_path = os.path.join('secrets', 'overlay_key.key')
-                os.makedirs('secrets', exist_ok=True)
-                if not os.path.exists(key_path):
-                    k = Fernet.generate_key()
-                    with open(key_path, 'wb') as kf:
-                        kf.write(k)
-                    os.chmod(key_path, 0o600)
+                if key_source == 'env':
+                    # If key is in env, read it and use to encrypt at save-time (if provided)
+                    env_key = os.environ.get(env_name)
+                    if env_key:
+                        k = env_key.encode('utf-8') if isinstance(env_key, str) else env_key
+                        f = Fernet(k)
+                        enc = f.encrypt(token_to_encrypt.encode('utf-8'))
+                        config['overlay']['encrypted_token'] = enc.decode('utf-8')
+                        config['overlay']['token'] = ''
+                    else:
+                        # cannot encrypt without env key — leave token plain and warn in UI via flash
+                        pass
                 else:
-                    with open(key_path, 'rb') as kf:
-                        k = kf.read()
-                f = Fernet(k)
-                enc = f.encrypt(token_to_encrypt.encode('utf-8'))
-                config['overlay']['encrypted_token'] = enc.decode('utf-8')
-                # clear plaintext token to avoid accidental exposure
-                config['overlay']['token'] = ''
+                    key_path = os.path.join('secrets', 'overlay_key.key')
+                    os.makedirs('secrets', exist_ok=True)
+                    if not os.path.exists(key_path):
+                        k = Fernet.generate_key()
+                        with open(key_path, 'wb') as kf:
+                            kf.write(k)
+                        os.chmod(key_path, 0o600)
+                    else:
+                        with open(key_path, 'rb') as kf:
+                            k = kf.read()
+                    f = Fernet(k)
+                    enc = f.encrypt(token_to_encrypt.encode('utf-8'))
+                    config['overlay']['encrypted_token'] = enc.decode('utf-8')
+                    # clear plaintext token to avoid accidental exposure
+                    config['overlay']['token'] = ''
         else:
             # if encryption disabled but encrypted token present, decrypt to plain token
             if not config['overlay'].get('encrypted', False) and config['overlay'].get('encrypted_token') and HAS_CRYPTO:

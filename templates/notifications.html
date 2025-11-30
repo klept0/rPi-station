@@ -40,11 +40,31 @@
 <body data-theme="{{ ui_config.theme }}">
     <div class="container">
         <h1>Notifications</h1>
+        <div style="margin-bottom:10px; display:flex; gap:10px; align-items:center;">
+            <label for="filter_source">Source:</label>
+            <select id="filter_source">
+                <option value="">(All)</option>{% for s in sources %}<option value="{{ s }}" {% if source_filter==s
+                    %}selected{% endif %}>{{ s }}</option>{% endfor %}
+            </select>
+            <label for="filter_type">Type:</label>
+            <select id="filter_type">
+                <option value="">(All)</option>{% for t in types %}<option value="{{ t }}" {% if type_filter==t
+                    %}selected{% endif %}>{{ t }}</option>{% endfor %}
+            </select>
+            <label for="per_page">Per page</label>
+            <select id="per_page">
+                <option>10</option>
+                <option selected>25</option>
+                <option>50</option>
+            </select>
+            <button id="apply_filters" style="margin-left:auto;">Apply</button>
+        </div>
         <div style="margin-bottom: 10px;">
             <button onclick="clearNotifications()" class="btn-danger">Clear All</button>
             <a href="/" style="margin-left: 10px;"><button>Back</button></a>
         </div>
         {% if notifications %}
+        {% set start_index = ((page - 1) * per_page) + 1 if page and per_page else 1 %}
         {% for n in notifications %}
         <div class="notif">
             <div style="flex:1;">
@@ -57,11 +77,30 @@
             </div>
         </div>
         {% endfor %}
+        <div style="margin-top: 10px; display:flex; gap: 10px; justify-content: center;">
+            {% set total_pages = (total // per_page) + (1 if total % per_page else 0) %}
+            {% if total_pages > 1 %}
+            {% if page > 1 %}<button onclick="loadNotifications({{ page - 1 }})">Previous</button>{% endif %}
+            Page {{ page }} of {{ total_pages }}
+            {% if page < total_pages %}<button onclick="loadNotifications({{ page + 1 }})">Next</button>{% endif %}
+                {% endif %}
+        </div>
         {% else %}
         <p>No notifications</p>
         {% endif %}
     </div>
     <script>
+        async function populateFilterOptions() {
+            try {
+                const r = await fetch('/notifications/filters');
+                if (!r.ok) return;
+                const data = await r.json();
+                const srcSel = document.getElementById('filter_source');
+                data.sources.forEach(s => { const o = document.createElement('option'); o.value = s; o.text = s; srcSel.appendChild(o); });
+                const tSel = document.getElementById('filter_type');
+                data.types.forEach(t => { const o = document.createElement('option'); o.value = t; o.text = t; tSel.appendChild(o); });
+            } catch (e) { }
+        }
         async function clearNotifications() {
             if (!confirm('Clear all notifications?')) return;
             try {
@@ -76,6 +115,15 @@
                 if (r.ok) location.reload(); else alert('Failed');
             } catch (e) { alert('Error'); }
         }
+        async function loadNotifications(page = 1) {
+            const src = document.getElementById('filter_source').value;
+            const type = document.getElementById('filter_type').value;
+            const per = document.getElementById('per_page').value;
+            const query = `?source=${encodeURIComponent(src)}&type=${encodeURIComponent(type)}&page=${page}&per_page=${per}`;
+            window.location.href = `/notifications/ui${query}`;
+        }
+        document.getElementById('apply_filters').addEventListener('click', () => loadNotifications(1));
+        document.addEventListener('DOMContentLoaded', () => populateFilterOptions());
     </script>
 </body>
 

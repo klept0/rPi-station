@@ -596,13 +596,24 @@ def post_overlay_event(event):
         overlay_port = int(overlay_cfg.get('port', 5000))
         overlay_host = overlay_cfg.get('host', '127.0.0.1') if 'host' in overlay_cfg else '127.0.0.1'
         overlay_token = overlay_cfg.get('token', '')
-        # If encryption is enabled, attempt to read encrypted token and key from disk
+        # If encryption is enabled, attempt to read encrypted token using file or env key source
         try:
             if overlay_cfg.get('encrypted', False) and overlay_cfg.get('encrypted_token') and HAS_CRYPTO:
-                key_path = os.path.join('secrets', 'overlay_key.key')
-                if os.path.exists(key_path):
-                    with open(key_path, 'rb') as kf:
-                        k = kf.read()
+                key_source = overlay_cfg.get('key_source', 'file')
+                if key_source == 'env':
+                    env_name = overlay_cfg.get('env_key_name', 'OVERLAY_SECRET_KEY')
+                    key_val = os.environ.get(env_name)
+                    if key_val:
+                        k = key_val.encode('utf-8') if isinstance(key_val, str) else key_val
+                    else:
+                        k = None
+                else:
+                    key_path = os.path.join('secrets', 'overlay_key.key')
+                    k = None
+                    if os.path.exists(key_path):
+                        with open(key_path, 'rb') as kf:
+                            k = kf.read()
+                if k:
                     f = Fernet(k)
                     overlay_token = f.decrypt(overlay_cfg.get('encrypted_token').encode('utf-8')).decode('utf-8')
         except Exception:
