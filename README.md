@@ -155,6 +155,21 @@ After starting, access the web interface at:
 http://[raspberry-pi-ip]:5000
 ```
 
+### Running the Test Suite
+
+Install the development/test dependencies and run pytest:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest -q
+```
+
+For a full guide on tests and a detailed end-to-end testing scenario, see `TESTING.md` in the project root.
+
+```
+
 ### Service Management
 
 ```bash

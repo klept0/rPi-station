@@ -52,7 +52,8 @@
                 <pre>{{ n.payload }}</pre>
             </div>
             <div style="width:120px; text-align:right;">
-                <button onclick="deleteNotification({{ n.id }})" class="btn-danger">Delete</button>
+                <button data-id="{{ n.id }}" onclick="deleteNotification(this.dataset.id)"
+                    class="btn-danger">Delete</button>
             </div>
         </div>
         {% endfor %}
