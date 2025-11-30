@@ -57,6 +57,10 @@ python-packages:
 	@echo "$(GREEN)Setting up Python virtual environment with uv...$(NC)"
 	sudo mkdir -p $(PROJECT_DIR)
 	sudo chown $$USER:$$USER $(PROJECT_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		echo "$(YELLOW)Existing venv detected at $(VENV_DIR). Cleaning up...$(NC)"; \
+		sudo rm -rf "$(VENV_DIR)"; \
+	fi
 	uv venv $(VENV_DIR)
 	@echo "$(GREEN)Installing Python packages with uv...$(NC)"
 	# Use uv pip to install packages in the virtual environment
@@ -70,6 +74,31 @@ python-packages:
 	cp -r . $(PROJECT_DIR)/
 	if [ -f "./waveshare/epdconfig.py" ]; then \
 		sudo cp ./waveshare/epdconfig.py $(VENV_DIR)/lib/python3.*/site-packages/waveshare_epd/; \
+		echo "$(GREEN)Waveshare config updated in virtual environment$(NC)"; \
+	fi
+
+python-packages-macos:
+	@echo "$(GREEN)Setting up Python virtual environment on macOS (fallback)$(NC)"
+	sudo mkdir -p $(PROJECT_DIR)
+	sudo chown $$USER:$$USER $(PROJECT_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		echo "$(YELLOW)Existing venv detected at $(VENV_DIR). Cleaning up...$(NC)"; \
+		sudo rm -rf "$(VENV_DIR)"; \
+	fi
+	python3 -m venv $(VENV_DIR)
+	@echo "$(GREEN)Installing Python packages with pip...$(NC)"
+	"$(VENV_DIR)/bin/pip" install --upgrade pip setuptools wheel
+	"$(VENV_DIR)/bin/pip" install spotipy st7789 eink-wave
+	"$(VENV_DIR)/bin/pip" install evdev numpy pillow flask
+	"$(VENV_DIR)/bin/pip" install pycairo dbus-python
+	"$(VENV_DIR)/bin/pip" install toml
+	@echo "$(GREEN)All Python packages installed in virtual environment$(NC)"
+	@echo "$(GREEN)Copying project files...$(NC)"
+	cp -r . $(PROJECT_DIR)/
+	@if [ -f "./waveshare/epdconfig.py" ]; then \
+		EPD_DIR=$$("$(VENV_DIR)/bin/python3" -c "import site,glob; import sys; d=[p for p in site.getsitepackages() if 'site-packages' in p]; print(d[0] if d else sys.prefix)" )/site-packages/waveshare_epd; \
+		sudo mkdir -p "$$EPD_DIR"; \
+		sudo cp ./waveshare/epdconfig.py "$$EPD_DIR"/; \
 		echo "$(GREEN)Waveshare config updated in virtual environment$(NC)"; \
 	fi
 
