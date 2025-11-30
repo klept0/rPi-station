@@ -27,14 +27,48 @@ Raspberry Pi-based media & status display with a Flask web UI, Spotify + Last.fm
 
 Headless Raspberry Pi OS Lite is recommended (desktop not required). A detailed checklist is in `HEADLESS_SETUP.md`.
 
+### Prerequisites
+
+- Raspberry Pi OS Lite (64-bit recommended on Pi 3/4/5)
+- Enable SPI (and I2C if you need it)
+- Network access (Ethernet or Wi‑Fi)
+
+Enable interfaces non-interactively:
+
+```bash
+sudo raspi-config nonint do_spi 0
+sudo raspi-config nonint do_i2c 0   # optional
+sudo reboot
+```
+
 ```bash
 git clone https://github.com/klept0/rPi-station.git
 cd rPi-station
 sudo make system-deps        # Packages + uv
 make python-packages         # Virtualenv & Python deps
 make config                  # Guided configuration
-sudo make setup-display      # ⚠️ Installs LCD drivers & reboots
-# (after reboot)
+```
+
+### Choose Display Path
+
+Path A — GoodTFT 3.5" TFT (framebuffer driver, /dev/fb1)
+
+Run vendor driver installer (reboots):
+
+```bash
+sudo make setup-display
+```
+
+Then set in `make config-display`: `display.type = framebuffer` and framebuffer `/dev/fb1`.
+
+Path B — ST7789 HAT via Python library
+
+- Skip `setup-display` (no vendor driver needed)
+- In `make config-display`, set `display.type = st7789` and pins/rotation
+
+Then enable the service:
+
+```bash
 sudo make setup-service      # Systemd service
 make sync-code               # Sync source after changes
 ```
@@ -55,16 +89,6 @@ python neondisplay.py
 ```
 
 Open `http://127.0.0.1:5000`.
-
-### Headless Pre-Flight (Lite Image)
-
-Minimal non-interactive SPI enable & reboot before install:
-
-```bash
-sudo raspi-config nonint do_spi 0
-sudo raspi-config nonint do_i2c 0   # optional
-sudo reboot
-```
 
 ## 🔧 Make Targets (Core)
 
