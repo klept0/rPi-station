@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NeonStation Overlay</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+
+        #overlay {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+        }
+
+        .event {
+            padding: 5px;
+        }
+
+        .type-scrobble {
+            color: #4CAF50;
+        }
+
+        .type-cover_fallback {
+            color: #FFC107;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="overlay">Waiting for events...</div>
+    <script>
+        const overlay = document.getElementById('overlay');
+        const es = new EventSource('/event_stream');
+        es.onmessage = function (e) {
+            try {
+                const ev = JSON.parse(e.data);
+                const t = ev.type;
+                const payload = ev.payload || {};
+                let text = '';
+                if (t === 'scrobble') {
+                    text = `Scrobbled: ${payload.artist || ''} - ${payload.title || ''}`;
+                    overlay.innerHTML = `<div class='event type-scrobble'>${text}</div>`;
+                } else if (t === 'cover_fallback') {
+                    text = `Fallback art used: ${payload.artist || ''} - ${payload.album || ''}`;
+                    overlay.innerHTML = `<div class='event type-cover_fallback'>${text}</div>`;
+                } else {
+                    overlay.innerHTML = `<div class='event'>${JSON.stringify(payload)}</div>`;
+                }
+                // auto-clear
+                setTimeout(() => { overlay.innerHTML = ''; }, 8000);
+            } catch (err) {
+                console.error('Failed to parse event', err);
+            }
+        };
+        es.onerror = function (err) {
+            console.error('EventSource error', err);
+        };
+    </script>
+</body>
+
+</html>

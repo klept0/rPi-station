@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import subprocess, time, threading, os, signal, sys
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, render_template_string, request, redirect, url_for, jsonify
 from datetime import datetime, timedelta
 
@@ -53,6 +54,7 @@ AP_CREATION_LOCK = threading.Lock()
 SCANNED_NETWORKS = []
 LAST_SCAN_TIME = None
 NEXT_RESCAN_TIME = None
+executor = ThreadPoolExecutor(max_workers=2)
 
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
@@ -458,7 +460,10 @@ def connect():
         return redirect(url_for('index'))
     if len(ssid) > 32 or len(password) > 63:
         return "<h2>Error</h2><p>Invalid SSID or password length</p>"
-    threading.Thread(target=connect_wifi_background, args=(ssid, password), daemon=True).start()
+    try:
+        executor.submit(connect_wifi_background, ssid, password)
+    except Exception:
+        threading.Thread(target=connect_wifi_background, args=(ssid, password), daemon=True).start()
     return "<h2>Connecting...</h2><p>You will lose connection to this interface.</p>"
 
 def format_time_remaining(target_time):
@@ -848,6 +853,11 @@ def main():
             time.sleep(0.1)
     except KeyboardInterrupt:
         signal_handler(signal.SIGINT, None)
+    finally:
+        try:
+            executor.shutdown(wait=False)
+        except Exception:
+            pass
 
 if __name__ == '__main__':
     main()

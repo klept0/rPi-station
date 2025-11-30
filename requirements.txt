@@ -1,0 +1,7 @@
+Flask>=2.0
+requests>=2.25
+spotipy>=2.19
+Pillow>=9.0
+numpy>=1.21
+pylast>=4.1
+evdev>=1.4

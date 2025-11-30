@@ -6,8 +6,15 @@ from collections import Counter
 from functools import wraps
 from logging.handlers import RotatingFileHandler
 import os, toml, time, requests, subprocess, sys, signal, urllib.parse, socket, logging, threading, json, hashlib, spotipy, io, sqlite3, shutil
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from collections import OrderedDict
 
 app = Flask(__name__)
+# event overlay support
+recent_events = []
+event_condition = threading.Condition()
+LAUNCHER_START_TIME = time.time()
 @app.after_request
 def add_header(response):
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
@@ -52,6 +59,15 @@ DEFAULT_CONFIG = {
         "client_secret": "",
         "redirect_uri": "http://127.0.0.1:5000"
     },
+    "lastfm": {
+        "api_key": "",
+        "api_secret": "",
+        "username": "",
+        "password": "",
+        "enabled": False,
+        "scrobble_threshold": 0.75,
+        "min_scrobble_seconds": 30
+    },
     "settings": {
         "framebuffer": "/dev/fb1",
         "start_screen": "weather",
@@ -61,6 +77,11 @@ DEFAULT_CONFIG = {
         "time_display": True,
         "progressbar_display": True,
         "enable_current_track_display": True
+    },
+    "overlay": {
+        "enabled": False,
+        "token": "",
+        "port": 5000
     },
     "wifi": {
         "ap_ssid": "Neonwifi-Manager",
@@ -73,7 +94,7 @@ DEFAULT_CONFIG = {
         "check_internet": True
     },
     "clock": {
-        "type": "analog",
+        "type": "digital",
         "background": "color",
         "color": "black"
     },
@@ -95,6 +116,15 @@ DEFAULT_CONFIG = {
 hud_process = None
 neonwifi_process = None
 last_logged_song = None
+session = requests.Session()
+retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
+
+# DB connection + lock
+_db_conn = None
+_db_lock = threading.Lock()
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
@@ -153,7 +183,7 @@ def setup_logging():
 
 def check_internet_connection(timeout=5):
     try:
-        response = requests.get("http://www.google.com", timeout=timeout)
+        response = session.get("http://www.google.com", timeout=timeout)
         return response.status_code == 200
     except requests.RequestException:
         try:
@@ -490,14 +520,14 @@ def search_lyrics_for_track(track_name, artist_name):
             'artist_name': artist_name
         }
         logger = logging.getLogger('Launcher')
-        response = requests.get(api_url, params=params, timeout=10)
+        response = session.get(api_url, params=params, timeout=10)
         if response.status_code == 200:
             results = response.json()
             if results:
                 first_result = results[0]
                 lyrics_id = first_result.get('id')
                 if lyrics_id:
-                    lyrics_response = requests.get(f"https://lrclib.net/api/get/{lyrics_id}", timeout=10)
+                    lyrics_response = session.get(f"https://lrclib.net/api/get/{lyrics_id}", timeout=10)
                     if lyrics_response.status_code == 200:
                         lyrics_data = lyrics_response.json()
                         return {
@@ -529,6 +559,38 @@ def status_hud():
 @app.route('/status/neonwifi')
 def status_neonwifi():
     return {'running': is_neonwifi_running()}
+
+
+@app.route('/health')
+def health():
+    try:
+        loadavg = os.getloadavg()
+    except Exception:
+        loadavg = (0, 0, 0)
+        health_info = {
+        'uptime_seconds': int(time.time() - LAUNCHER_START_TIME),
+        'hud_running': is_hud_running(),
+        'neonwifi_running': is_neonwifi_running(),
+        'cpu_load': loadavg,
+        'db_connected': _db_conn is not None if '_db_conn' in globals() else False
+        }
+        # Last.fm status
+        try:
+            cfg = load_config()
+            lastfm_cfg = cfg.get('lastfm', {})
+            health_info['lastfm_enabled'] = bool(lastfm_cfg.get('enabled', False))
+            health_info['lastfm_configured'] = bool(lastfm_cfg.get('api_key') and lastfm_cfg.get('username'))
+        except Exception:
+            health_info['lastfm_enabled'] = False
+            health_info['lastfm_configured'] = False
+        try:
+            overlay_cfg = cfg.get('overlay', {})
+            health_info['overlay_enabled'] = bool(overlay_cfg.get('enabled', False))
+            health_info['overlay_configured'] = bool(overlay_cfg.get('token'))
+        except Exception:
+            health_info['overlay_enabled'] = False
+            health_info['overlay_configured'] = False
+        return health_info
 
 def rate_limit(min_interval=0.5):
     def decorator(f):
@@ -884,14 +946,14 @@ def search_lyrics():
     try:
         api_url = f"https://lrclib.net/api/search"
         params = {'track_name': track_name,'artist_name': artist_name}
-        response = requests.get(api_url, params=params, timeout=10)
+        response = session.get(api_url, params=params, timeout=10)
         if response.status_code == 200:
             results = response.json()
             if results:
                 first_result = results[0]
                 lyrics_id = first_result.get('id')
                 if lyrics_id:
-                    lyrics_response = requests.get(f"https://lrclib.net/api/get/{lyrics_id}", timeout=10)
+                    lyrics_response = session.get(f"https://lrclib.net/api/get/{lyrics_id}", timeout=10)
                     if lyrics_response.status_code == 200:
                         lyrics_data = lyrics_response.json()
                         return {'success': True,'lyrics': lyrics_data.get('syncedLyrics', ''),'plain_lyrics': lyrics_data.get('plainLyrics', ''),'track_name': lyrics_data.get('trackName', track_name),'artist_name': lyrics_data.get('artistName', artist_name),'album_name': lyrics_data.get('albumName', ''),'duration': lyrics_data.get('duration', 0)}
@@ -1184,12 +1246,81 @@ def advanced_config():
     spotify_configured = bool(config["api_keys"]["client_id"] and config["api_keys"]["client_secret"])
     spotify_authenticated, _ = check_spotify_auth()
     ui_config = config.get("ui", {"theme": "dark"})
-    return render_template('advanced_config.html',
+        lastfm_configured = bool(config.get('lastfm', {}).get('api_key') and config.get('lastfm', {}).get('username'))
+        lastfm_enabled = bool(config.get('lastfm', {}).get('enabled', False))
+        return render_template('advanced_config.html',
             config=config, 
             spotify_configured=spotify_configured,
             spotify_authenticated=spotify_authenticated,
+            lastfm_configured=lastfm_configured,
+            lastfm_enabled=lastfm_enabled,
             ui_config=ui_config
         )
+
+
+    @app.route('/events', methods=['POST'])
+    def ingest_event():
+        """Endpoint for HUD (local) to POST events for streaming to overlay clients."""
+        global recent_events, event_condition
+        # If overlay is enabled, require a shared token to accept posts
+        cfg_local = load_config()
+        overlay_cfg = cfg_local.get('overlay', {})
+        if not overlay_cfg.get('enabled', False):
+            return 'Overlay disabled', 403
+        # overlay enabled, require token
+        if overlay_cfg.get('enabled', False):
+            expected_token = overlay_cfg.get('token', '') or None
+            if not expected_token:
+                # overlay enabled but no token configured; reject
+                return 'Overlay not configured (no token)', 403
+            header_token = request.headers.get('X-Overlay-Token')
+            if header_token != expected_token:
+                logger = logging.getLogger('Launcher')
+                logger.warning('Overlay event rejected: invalid token')
+                return 'Invalid token', 403
+        try:
+            data = request.get_json(force=True)
+            if not data or 'type' not in data:
+                return 'Invalid payload', 400
+            ev = {
+                'type': data.get('type'),
+                'timestamp': int(time.time()),
+                'payload': data
+            }
+            with event_condition:
+                recent_events.append(ev)
+                # cap events
+                if len(recent_events) > 30:
+                    recent_events = recent_events[-30:]
+                event_condition.notify_all()
+            return 'ok', 200
+        except Exception as e:
+            logger = logging.getLogger('Launcher')
+            logger.error(f"Error ingesting event: {e}")
+            return 'error', 500
+
+
+    def event_stream_generator():
+        last_sent_index = 0
+        while True:
+            with event_condition:
+                if len(recent_events) <= last_sent_index:
+                    event_condition.wait(timeout=15)
+                # send any new events
+                while last_sent_index < len(recent_events):
+                    ev = recent_events[last_sent_index]
+                    last_sent_index += 1
+                    yield f"data: {json.dumps(ev)}\n\n"
+
+
+    @app.route('/event_stream')
+    def event_stream():
+        return Response(event_stream_generator(), mimetype='text/event-stream')
+
+
+    @app.route('/overlay')
+    def overlay():
+        return render_template('overlay.html')
 
 @app.route('/save_advanced_config', methods=['POST'])
 def save_advanced_config():
@@ -1246,6 +1377,27 @@ def save_advanced_config():
         config["clock"]["background"] = request.form.get('clock_background', 'color')
         config["clock"]["color"] = request.form.get('clock_color', '#000000')
         config["clock"]["type"] = request.form.get('clock_type', 'digital')
+        # Last.fm settings
+        if 'lastfm' not in config:
+            config['lastfm'] = {}
+        config['lastfm']['enabled'] = 'lastfm_enabled' in request.form
+        config['lastfm']['api_key'] = request.form.get('lastfm_api_key', '').strip()
+        config['lastfm']['api_secret'] = request.form.get('lastfm_api_secret', '').strip()
+        config['lastfm']['username'] = request.form.get('lastfm_username', '').strip()
+        config['lastfm']['password'] = request.form.get('lastfm_password', '').strip()
+        try:
+            config['lastfm']['scrobble_threshold'] = float(request.form.get('lastfm_threshold', 0.75))
+        except Exception:
+            config['lastfm']['scrobble_threshold'] = 0.75
+        try:
+            config['lastfm']['min_scrobble_seconds'] = int(request.form.get('lastfm_min_seconds', 30))
+        except Exception:
+            config['lastfm']['min_scrobble_seconds'] = 30
+        # Overlay settings
+        if 'overlay' not in config:
+            config['overlay'] = {}
+        config['overlay']['enabled'] = 'overlay_enabled' in request.form
+        config['overlay']['token'] = request.form.get('overlay_token', '').strip()
         save_config(config)
         flash('success', 'Advanced configuration saved successfully!')
         def restart_process(process_name, stop_func, start_func, check_func):
@@ -1377,7 +1529,10 @@ def log_current_track_state():
         logger.error(f"Error logging from current track state: {e}")
 
 def init_song_database():
-    conn = sqlite3.connect('song_stats.db', check_same_thread=False)
+    global _db_conn
+    if _db_conn is None:
+        _db_conn = sqlite3.connect('song_stats.db', check_same_thread=False)
+    conn = _db_conn
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS song_plays (
@@ -1416,8 +1571,11 @@ def update_song_count(song_info):
     if not hasattr(update_song_count, 'lock'):
         update_song_count.lock = threading.Lock()
     with update_song_count.lock:
+        with _db_lock:
         try:
-            conn = sqlite3.connect('song_stats.db', check_same_thread=False)
+            conn = init_song_database()
+            if not conn:
+                return
             cursor = conn.cursor()
             if not song_info or not current_song:
                 conn.close()
@@ -1431,7 +1589,6 @@ def update_song_count(song_info):
                 last_played = datetime('now')
             ''', (song_hash, current_song))
             conn.commit()
-            conn.close()
             backup_db_if_needed()
             last_logged_song = current_song
         except Exception as e:
@@ -1503,8 +1660,9 @@ def get_current_track():
 
 def load_song_counts():
     try:
-        conn = sqlite3.connect('song_stats.db', check_same_thread=False)
-        cursor = conn.cursor()
+        conn = init_song_database()
+        with _db_lock:
+            cursor = conn.cursor()
         cursor.execute('''
             SELECT song_data, play_count 
             FROM song_plays 
@@ -1512,21 +1670,23 @@ def load_song_counts():
             LIMIT 1000
         ''')
         result = dict(cursor.fetchall())
-        conn.close()
+        # keep connection open
         return result
     except Exception as e:
         logger = logging.getLogger('Launcher')
         logger.error(f"Error loading song counts: {e}")
         try:
-            conn.close()
+            # we don't close module connection here
+            pass
         except:
             pass
         return {}
 
 def generate_music_stats(max_items=1000):
     try:
-        conn = sqlite3.connect('song_stats.db', check_same_thread=False)
-        cursor = conn.cursor()
+        conn = init_song_database()
+        with _db_lock:
+            cursor = conn.cursor()
         cursor.execute('SELECT SUM(play_count), COUNT(*) FROM song_plays')
         total_plays, unique_songs = cursor.fetchone()
         total_plays = total_plays or 0
@@ -1557,13 +1717,13 @@ def generate_music_stats(max_items=1000):
         sorted_artists = sorted(artist_stats.items(), key=lambda x: x[1], reverse=True)
         artist_stats = dict(sorted_artists[:max_items])
         unique_artists = len(all_artists_set)
-        conn.close()
+        # keep connection open
         return song_stats, artist_stats, total_plays, unique_songs, unique_artists
     except Exception as e:
         logger = logging.getLogger('Launcher')
         logger.error(f"Error generating music stats: {e}")
         try:
-            conn.close()
+            # module-level conn is kept open
         except:
             pass
         return {}, {}, 0, 0, 0
@@ -1590,12 +1750,15 @@ def cleanup():
     logger.info("🧹 Performing cleanup...")
     functions_with_conn = [update_song_count, load_song_counts, generate_music_stats]
     for func in functions_with_conn:
-        if hasattr(func, 'db_conn'):
-            try:
-                func.db_conn.close()
-                logger.info(f"Closed database connection for {func.__name__}")
-            except Exception as e:
-                logger.error(f"Error closing database connection for {func.__name__}: {e}")
+        # Close the module-level connection once
+    try:
+        global _db_conn
+        if _db_conn:
+            _db_conn.close()
+            _db_conn = None
+            logger.info("Closed song_stats.db connection")
+    except Exception as e:
+        logger.error(f"Error closing module DB connection: {e}")
     if hud_process and hud_process.poll() is None:
         logger.info("Stopping HUD process...")
         hud_process.terminate()
@@ -1654,6 +1817,14 @@ def main():
         return list(set(ips))
     lan_ips = get_lan_ips()
     auto_launch_applications()
+    # Ensure the DB connection is initialized and registered with functions
+    try:
+        conn = init_song_database()
+        update_song_count.db_conn = conn
+        load_song_counts.db_conn = conn
+        generate_music_stats.db_conn = conn
+    except Exception:
+        pass
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     import logging as pylogging

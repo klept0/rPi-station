@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <link rel="stylesheet" href="/static/colors.css">
     <title>Advanced Configuration - NeonDisplay Launcher</title>
@@ -13,6 +14,7 @@
             color: var(--text-primary);
             transition: all 0.3s ease;
         }
+
         .container {
             background: var(--bg-secondary);
             padding: 30px;
@@ -21,11 +23,13 @@
             border: 3px solid var(--border-color);
             max-width: 100%;
         }
+
         h1 {
             text-align: center;
             color: var(--text-primary);
             margin-bottom: 30px;
         }
+
         .section {
             background: var(--bg-tertiary);
             padding: 20px;
@@ -33,22 +37,30 @@
             margin-bottom: 30px;
             border-left: 4px solid var(--accent-color);
         }
+
         .section h2 {
             margin-top: 0;
             color: var(--text-primary);
             border-bottom: 2px solid var(--border-color);
             padding-bottom: 10px;
         }
+
         .form-group {
             margin-bottom: 20px;
         }
+
         label {
             display: block;
             margin-bottom: 5px;
             font-weight: bold;
             color: var(--text-primary);
         }
-        input[type="text"], input[type="number"], input[type="password"], textarea, select {
+
+        input[type="text"],
+        input[type="number"],
+        input[type="password"],
+        textarea,
+        select {
             width: 100%;
             padding: 10px;
             border: 1px solid var(--border-color);
@@ -58,36 +70,48 @@
             background: var(--bg-secondary);
             color: var(--text-primary);
         }
-        input[type="text"]:focus, input[type="number"]:focus, input[type="password"]:focus, textarea:focus, select:focus {
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        input[type="password"]:focus,
+        textarea:focus,
+        select:focus {
             border-color: var(--accent-color);
             outline: none;
         }
+
         .instructions a {
             color: var(--text-primary);
             text-decoration: underline;
         }
+
         .toggle-switch {
             display: flex;
             align-items: center;
             margin: 15px 0;
         }
+
         .toggle-switch input[type="checkbox"] {
             margin-right: 10px;
             transform: scale(1.2);
         }
+
         .toggle-switch label {
             margin-bottom: 0;
         }
+
         small {
             color: var(--text-secondary);
             display: block;
             margin-top: 5px;
         }
+
         .config-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
         }
+
         button {
             background: var(--accent-color);
             color: white;
@@ -99,34 +123,42 @@
             margin: 5px;
             transition: all 0.3s ease;
         }
+
         button:hover {
             background: var(--accent-hover);
         }
+
         .btn-secondary {
             background: #6c757d;
         }
+
         .btn-success {
             background: #28a745;
         }
+
         .btn-danger {
             background: #dc3545;
         }
+
         .status {
             padding: 10px;
             border-radius: 5px;
             margin: 10px 0;
             text-align: center;
         }
+
         .status.success {
             background: var(--success-bg);
             color: var(--text-primary);
             border: 1px solid var(--success-border);
         }
+
         .status.error {
             background: var(--error-bg);
             color: var(--text-primary);
             border: 1px solid var(--error-border);
         }
+
         .theme-toggle {
             position: fixed;
             top: 20px;
@@ -140,33 +172,39 @@
             font-size: 12px;
             z-index: 1000;
         }
+
         .button-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin: 20px 0;
         }
+
         .button-config {
             background: var(--bg-secondary);
             padding: 15px;
             border-radius: 8px;
             border: 1px solid var(--border-color);
         }
+
         .button-config h4 {
             margin-top: 0;
             color: var(--accent-color);
         }
+
         .font-config {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 15px;
         }
+
         .font-group {
             background: var(--bg-secondary);
             padding: 15px;
             border-radius: 8px;
             border: 1px solid var(--border-color);
         }
+
         .instructions {
             background: var(--info-bg);
             padding: 15px;
@@ -178,6 +216,7 @@
         }
     </style>
 </head>
+
 <body data-theme="{{ ui_config.theme }}">
     <button class="theme-toggle" onclick="toggleTheme()">
         {% if ui_config.theme == 'dark' %}
@@ -189,45 +228,79 @@
     <div class="container">
         <h1>⚙️ Advanced Configuration</h1>
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="status {{ category }}">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="status {{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
         {% endwith %}
         <form method="POST" action="/save_advanced_config">
             <div class="section">
                 <h2>🔑 API Configuration</h2>
                 <div class="instructions">
                     <p><strong>Get your API keys:</strong></p>
-                    <p>• <a href="https://openweathermap.org/api" target="_blank">OpenWeatherMap</a> - Free weather API</p>
-                    <p>• <a href="https://developers.google.com/maps/documentation/geolocation" target="_blank">Google Geolocation API</a> - Optional, for precise location</p>
-                    <p>• <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer Dashboard</a> - For music integration</p>
+                    <p>• <a href="https://openweathermap.org/api" target="_blank">OpenWeatherMap</a> - Free weather API
+                    </p>
+                    <p>• <a href="https://developers.google.com/maps/documentation/geolocation" target="_blank">Google
+                            Geolocation API</a> - Optional, for precise location</p>
+                    <p>• <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer
+                            Dashboard</a> - For music integration</p>
+                    <div class="form-group">
+                        <label for="lastfm_min_seconds">Minimum scrobble seconds:</label>
+                        <input type="number" step="1" min="0" id="lastfm_min_seconds" name="lastfm_min_seconds"
+                            value="{{ config.lastfm.min_scrobble_seconds }}">
+                        <small>Minimum seconds a track must be played to qualify for scrobble</small>
+                    </div>
                 </div>
                 {% if spotify_configured %}
-                    {% if spotify_authenticated %}
-                    <div class="status success">
-                        <p>✅ Spotify is authenticated!</p>
-                    </div>
-                    {% else %}
-                    <div class="status warning">
-                        <p>⚠️ Spotify credentials saved but not authenticated.</p>
-                        <a href="/spotify_auth">
-                            <button type="button" class="btn-warning">🔑 Authenticate Spotify</button>
-                        </a>
-                    </div>
-                    {% endif %}
+                {% if spotify_authenticated %}
+                <div class="status success">
+                    <p>✅ Spotify is authenticated!</p>
+                </div>
+                {% else %}
+                <div class="status warning">
+                    <p>⚠️ Spotify credentials saved but not authenticated.</p>
+                    <a href="/spotify_auth">
+                        <button type="button" class="btn-warning">🔑 Authenticate Spotify</button>
+                    </a>
+                </div>
+                {% endif %}
+                {% endif %}
+                {% if lastfm_configured %}
+                {% if lastfm_enabled %}
+                <div class="status success">
+                    <p>✅ Last.fm scrobbling enabled</p>
+                </div>
+                {% else %}
+                <div class="status">
+                    <p>ℹ️ Last.fm configured (disabled)</p>
+                </div>
+                {% endif %}
+                {% if config.overlay %}
+                {% if config.overlay.enabled %}
+                <div class="status success">
+                    <p>✅ Overlay enabled</p>
+                </div>
+                {% elif config.overlay.token %}
+                <div class="status">
+                    <p>ℹ️ Overlay configured (disabled)</p>
+                </div>
+                {% endif %}
+                {% endif %}
                 {% endif %}
                 <div class="config-grid">
                     <div>
                         <h3>Weather APIs</h3>
                         <div class="form-group">
                             <label for="openweather">OpenWeatherMap API Key:</label>
-                            <input type="text" id="openweather" name="openweather" value="{{ config.api_keys.openweather }}" placeholder="Enter your OpenWeatherMap API key">
+                            <input type="text" id="openweather" name="openweather"
+                                value="{{ config.api_keys.openweather }}"
+                                placeholder="Enter your OpenWeatherMap API key">
                         </div>
                         <div class="form-group">
                             <label for="google_geo">Google Geolocation API Key:</label>
-                            <input type="text" id="google_geo" name="google_geo" value="{{ config.api_keys.google_geo }}" placeholder="Enter Google Geolocation API key">
+                            <input type="text" id="google_geo" name="google_geo"
+                                value="{{ config.api_keys.google_geo }}" placeholder="Enter Google Geolocation API key">
                             <small>Optional - for precise location without GPS</small>
                         </div>
                     </div>
@@ -235,16 +308,53 @@
                         <h3>Spotify API</h3>
                         <div class="form-group">
                             <label for="client_id">Spotify Client ID:</label>
-                            <input type="text" id="client_id" name="client_id" value="{{ config.api_keys.client_id }}" placeholder="Enter your Spotify Client ID">
+                            <input type="text" id="client_id" name="client_id" value="{{ config.api_keys.client_id }}"
+                                placeholder="Enter your Spotify Client ID">
                         </div>
                         <div class="form-group">
                             <label for="client_secret">Spotify Client Secret:</label>
-                            <input type="password" id="client_secret" name="client_secret" value="{{ config.api_keys.client_secret }}" placeholder="Enter your Spotify Client Secret">
+                            <input type="password" id="client_secret" name="client_secret"
+                                value="{{ config.api_keys.client_secret }}"
+                                placeholder="Enter your Spotify Client Secret">
                         </div>
                         <div class="form-group">
                             <label for="redirect_uri">Spotify Redirect URI:</label>
-                            <input type="text" id="redirect_uri" name="redirect_uri" value="{{ config.api_keys.redirect_uri }}">
+                            <input type="text" id="redirect_uri" name="redirect_uri"
+                                value="{{ config.api_keys.redirect_uri }}">
                             <small>OAuth redirect URI for Spotify</small>
+                        </div>
+                        <div class="form-group">
+                            <h3>Last.fm</h3>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="lastfm_enabled" name="lastfm_enabled" {% if
+                                    config.lastfm.enabled %}checked{% endif %}>
+                                <label for="lastfm_enabled">Enable Last.fm Scrobbling</label>
+                            </div>
+                            <div class="form-group">
+                                <label for="lastfm_api_key">Last.fm API Key:</label>
+                                <input type="text" id="lastfm_api_key" name="lastfm_api_key"
+                                    value="{{ config.lastfm.api_key }}">
+                            </div>
+                            <div class="form-group">
+                                <label for="lastfm_api_secret">Last.fm API Secret:</label>
+                                <input type="text" id="lastfm_api_secret" name="lastfm_api_secret"
+                                    value="{{ config.lastfm.api_secret }}">
+                            </div>
+                            <div class="form-group">
+                                <label for="lastfm_username">Last.fm Username:</label>
+                                <input type="text" id="lastfm_username" name="lastfm_username"
+                                    value="{{ config.lastfm.username }}">
+                            </div>
+                            <div class="form-group">
+                                <label for="lastfm_password">Last.fm Password:</label>
+                                <input type="password" id="lastfm_password" name="lastfm_password"
+                                    value="{{ config.lastfm.password }}">
+                            </div>
+                            <div class="form-group">
+                                <label for="lastfm_threshold">Scrobble threshold (0.0-1.0):</label>
+                                <input type="number" step="0.01" min="0" max="1" id="lastfm_threshold"
+                                    name="lastfm_threshold" value="{{ config.lastfm.scrobble_threshold }}">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -257,20 +367,26 @@
                         <div>
                             <div class="form-group">
                                 <label for="fallback_city">Fallback City:</label>
-                                <input type="text" id="fallback_city" name="fallback_city" value="{{ config.settings.fallback_city }}" placeholder="e.g., London,UK">
+                                <input type="text" id="fallback_city" name="fallback_city"
+                                    value="{{ config.settings.fallback_city }}" placeholder="e.g., London,UK">
                                 <small>Used when location services are unavailable</small>
                             </div>
                         </div>
                         <div>
                             <div class="toggle-switch">
-                                <input type="checkbox" id="use_gpsd" name="use_gpsd" {% if config.settings.use_gpsd %}checked{% endif %}>
+                                <input type="checkbox" id="use_gpsd" name="use_gpsd" {% if config.settings.use_gpsd
+                                    %}checked{% endif %}>
                                 <label for="use_gpsd">Use GPSD for location</label>
-                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(Requires GPS hardware and gpsd service)</small>
+                                <small
+                                    style="display: block; margin-left: 25px; color: var(--text-secondary);">(Requires
+                                    GPS hardware and gpsd service)</small>
                             </div>
                             <div class="toggle-switch">
-                                <input type="checkbox" id="use_google_geo" name="use_google_geo" {% if config.settings.use_google_geo %}checked{% endif %}>
+                                <input type="checkbox" id="use_google_geo" name="use_google_geo" {% if
+                                    config.settings.use_google_geo %}checked{% endif %}>
                                 <label for="use_google_geo">Use Google Geolocation</label>
-                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(More accurate than IP-based location)</small>
+                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(More
+                                    accurate than IP-based location)</small>
                             </div>
                         </div>
                     </div>
@@ -282,29 +398,36 @@
                             <div class="form-group">
                                 <label for="display_type">Display Type:</label>
                                 <select id="display_type" name="display_type">
-                                    <option value="framebuffer" {% if config.display.type == "framebuffer" %}selected{% endif %}>Framebuffer (TFT 3.5")</option>
-                                    <option value="st7789" {% if config.display.type == "st7789" %}selected{% endif %}>ST7789 (DisplayHatMini)</option>
-                                    <option value="waveshare_epd" {% if config.display.type == "waveshare_epd" %}selected{% endif %}>Waveshare E-Paper</option>
-                                    <option value="dummy" {% if config.display.type == "dummy" %}selected{% endif %}>Dummy</option>
+                                    <option value="framebuffer" {% if config.display.type=="framebuffer" %}selected{%
+                                        endif %}>Framebuffer (TFT 3.5")</option>
+                                    <option value="st7789" {% if config.display.type=="st7789" %}selected{% endif %}>
+                                        ST7789 (DisplayHatMini)</option>
+                                    <option value="waveshare_epd" {% if config.display.type=="waveshare_epd"
+                                        %}selected{% endif %}>Waveshare E-Paper</option>
+                                    <option value="dummy" {% if config.display.type=="dummy" %}selected{% endif %}>Dummy
+                                    </option>
                                 </select>
                                 <small>Select your display hardware type</small>
                             </div>
                             <div class="form-group">
                                 <label for="framebuffer_device">Framebuffer Device:</label>
-                                <input type="text" id="framebuffer_device" name="framebuffer_device" value="{{ config.display.framebuffer }}" placeholder="/dev/fb1">
+                                <input type="text" id="framebuffer_device" name="framebuffer_device"
+                                    value="{{ config.display.framebuffer }}" placeholder="/dev/fb1">
                                 <small>Path to framebuffer device (e.g., /dev/fb0, /dev/fb1)</small>
                             </div>
                             <div class="form-group">
                                 <label for="rotation">Rotation:</label>
                                 <select id="rotation" name="rotation">
-                                    <option value="0" {% if config.display.rotation == 0 %}selected{% endif %}>0°</option>
-                                    <option value="180" {% if config.display.rotation == 180 %}selected{% endif %}>180°</option>
+                                    <option value="0" {% if config.display.rotation==0 %}selected{% endif %}>0°</option>
+                                    <option value="180" {% if config.display.rotation==180 %}selected{% endif %}>180°
+                                    </option>
                                 </select>
                                 <small>Screen rotation angle</small>
                             </div>
                             <div class="form-group">
                                 <label for="sleep_timeout">Screen Timeout (seconds):</label>
-                                <input type="number" id="sleep_timeout" name="sleep_timeout" value="{{ config.settings.sleep_timeout }}" min="0" max="99999" step="30">
+                                <input type="number" id="sleep_timeout" name="sleep_timeout"
+                                    value="{{ config.settings.sleep_timeout }}" min="0" max="99999" step="30">
                                 <small>Time in seconds before screen turns off (0 = never)</small>
                             </div>
                         </div>
@@ -312,23 +435,50 @@
                             <div class="form-group">
                                 <label for="start_screen">Start Screen:</label>
                                 <select id="start_screen" name="start_screen">
-                                    <option value="weather" {% if config.settings.start_screen == "weather" %}selected{% endif %}>Weather</option>
-                                    <option value="spotify" {% if config.settings.start_screen == "spotify" %}selected{% endif %}>Spotify</option>
-                                    <option value="time" {% if config.settings.start_screen == "time" %}selected{% endif %}>Time</option>
+                                    <option value="weather" {% if config.settings.start_screen=="weather" %}selected{%
+                                        endif %}>Weather</option>
+                                    <option value="spotify" {% if config.settings.start_screen=="spotify" %}selected{%
+                                        endif %}>Spotify</option>
+                                    <option value="time" {% if config.settings.start_screen=="time" %}selected{% endif
+                                        %}>Time</option>
                                 </select>
                                 <small>Default screen to show on startup</small>
                             </div>
+                            <div class="form-group">
+                                <label>Overlay for streamers:</label>
+                                <a href="/overlay" target="_blank"><button type="button" class="btn-success">Open
+                                        Overlay (for OBS)</button></a>
+                                <small>Use the returned URL as a Browser Source in OBS or other streaming tools</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="overlay_enabled">Enable HUD ➜ Overlay events</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="overlay_enabled" name="overlay_enabled" {% if
+                                        config.overlay.enabled %}checked{% endif %}>
+                                    <label for="overlay_enabled">Enable overlay event posting</label>
+                                </div>
+                                <label for="overlay_token">Overlay token (shared secret)</label>
+                                <input type="text" id="overlay_token" name="overlay_token"
+                                    value="{{ config.overlay.token }}"
+                                    placeholder="Shared secret to post events (required if enabled)">
+                                <small>Keep this secret; HUD will post events to neondisplay when enabled.</small>
+                            </div>
                             <div class="toggle-switch">
-                                <input type="checkbox" id="time_display" name="time_display" {% if config.settings.time_display %}checked{% endif %}>
+                                <input type="checkbox" id="time_display" name="time_display" {% if
+                                    config.settings.time_display %}checked{% endif %}>
                                 <label for="time_display">Show time display</label>
                             </div>
                             <div class="toggle-switch">
-                                <input type="checkbox" id="enable_current_track_display" name="enable_current_track_display" {% if config.settings.enable_current_track_display %}checked{% endif %}>
+                                <input type="checkbox" id="enable_current_track_display"
+                                    name="enable_current_track_display" {% if
+                                    config.settings.enable_current_track_display %}checked{% endif %}>
                                 <label for="enable_current_track_display">Enable current track display</label>
-                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(Shows current track on display and updates the current track file for the web UI)</small>
+                                <small style="display: block; margin-left: 25px; color: var(--text-secondary);">(Shows
+                                    current track on display and updates the current track file for the web UI)</small>
                             </div>
                             <div class="toggle-switch">
-                                <input type="checkbox" id="progressbar_display" name="progressbar_display" {% if config.settings.progressbar_display %}checked{% endif %}>
+                                <input type="checkbox" id="progressbar_display" name="progressbar_display" {% if
+                                    config.settings.progressbar_display %}checked{% endif %}>
                                 <label for="progressbar_display">Show progress bar for Spotify tracks</label>
                             </div>
                         </div>
@@ -341,7 +491,8 @@
                     <div>
                         <div class="form-group">
                             <label for="spi_port">SPI Port:</label>
-                            <input type="number" id="spi_port" name="spi_port" value="{{ config.display.st7789.spi_port }}" min="0" max="1">
+                            <input type="number" id="spi_port" name="spi_port"
+                                value="{{ config.display.st7789.spi_port }}" min="0" max="1">
                             <small>SPI port number (usually 0)</small>
                         </div>
                         <div class="form-group">
@@ -358,12 +509,14 @@
                     <div>
                         <div class="form-group">
                             <label for="backlight_pin">Backlight Pin:</label>
-                            <input type="number" id="backlight_pin" name="backlight_pin" value="{{ config.display.st7789.backlight_pin }}">
+                            <input type="number" id="backlight_pin" name="backlight_pin"
+                                value="{{ config.display.st7789.backlight_pin }}">
                             <small>Backlight control pin</small>
                         </div>
                         <div class="form-group">
                             <label for="spi_speed">SPI Speed (Hz):</label>
-                            <input type="number" id="spi_speed" name="spi_speed" value="{{ config.display.st7789.spi_speed }}">
+                            <input type="number" id="spi_speed" name="spi_speed"
+                                value="{{ config.display.st7789.spi_speed }}">
                             <small>SPI communication speed</small>
                         </div>
                     </div>
@@ -377,8 +530,7 @@
                         <div class="form-group">
                             <label for="clock_type">Clock Type:</label>
                             <select id="clock_type" name="clock_type">
-                                <option value="digital" {% if config.clock.type == "digital" %}selected{% endif %}>Digital</option>
-                                <option value="analog" {% if config.clock.type == "analog" %}selected{% endif %}>Analog</option>
+                                <option value="digital" selected>Digital</option>
                             </select>
                             <small>CLock display type.</small>
                         </div>
@@ -388,9 +540,12 @@
                         <div class="form-group">
                             <label for="clock_background">Background Mode:</label>
                             <select id="clock_background" name="clock_background">
-                                <option value="color" {% if config.clock.background == "color" %}selected{% endif %}>Color</option>
-                                <option value="album" {% if config.clock.background == "album" %}selected{% endif %}>Album Art</option>
-                                <option value="weather" {% if config.clock.background == "weather" %}selected{% endif %}>Weather</option>
+                                <option value="color" {% if config.clock.background=="color" %}selected{% endif %}>Color
+                                </option>
+                                <option value="album" {% if config.clock.background=="album" %}selected{% endif %}>Album
+                                    Art</option>
+                                <option value="weather" {% if config.clock.background=="weather" %}selected{% endif %}>
+                                    Weather</option>
                             </select>
                             <small>Select background source for the clock display</small>
                         </div>
@@ -399,7 +554,8 @@
                         <br>
                         <div class="form-group">
                             <label for="clock_color">Base Color (Hex or name):</label>
-                            <input type="text" id="clock_color" name="clock_color" value="{{ config.clock.color }}" placeholder="#00FFFF or cyan">
+                            <input type="text" id="clock_color" name="clock_color" value="{{ config.clock.color }}"
+                                placeholder="#00FFFF or cyan">
                             <small>Used for color mode or fallback background</small>
                         </div>
                     </div>
@@ -412,59 +568,71 @@
                         <h3>Main Display Fonts</h3>
                         <div class="form-group">
                             <label for="large_font_path">Large Font Path:</label>
-                            <input type="text" id="large_font_path" name="large_font_path" value="{{ config.fonts.large_font_path }}">
+                            <input type="text" id="large_font_path" name="large_font_path"
+                                value="{{ config.fonts.large_font_path }}">
                             <small>Path to large font file</small>
                         </div>
                         <div class="form-group">
                             <label for="large_font_size">Large Font Size:</label>
-                            <input type="number" id="large_font_size" name="large_font_size" value="{{ config.fonts.large_font_size }}">
+                            <input type="number" id="large_font_size" name="large_font_size"
+                                value="{{ config.fonts.large_font_size }}">
                         </div>
                         <div class="form-group">
                             <label for="medium_font_path">Medium Font Path:</label>
-                            <input type="text" id="medium_font_path" name="medium_font_path" value="{{ config.fonts.medium_font_path }}">
+                            <input type="text" id="medium_font_path" name="medium_font_path"
+                                value="{{ config.fonts.medium_font_path }}">
                             <small>Path to medium font file</small>
                         </div>
                         <div class="form-group">
                             <label for="medium_font_size">Medium Font Size:</label>
-                            <input type="number" id="medium_font_size" name="medium_font_size" value="{{ config.fonts.medium_font_size }}">
+                            <input type="number" id="medium_font_size" name="medium_font_size"
+                                value="{{ config.fonts.medium_font_size }}">
                         </div>
                         <div class="form-group">
                             <label for="small_font_path">Small Font Path:</label>
-                            <input type="text" id="small_font_path" name="small_font_path" value="{{ config.fonts.small_font_path }}">
+                            <input type="text" id="small_font_path" name="small_font_path"
+                                value="{{ config.fonts.small_font_path }}">
                             <small>Path to small font file</small>
                         </div>
                         <div class="form-group">
                             <label for="small_font_size">Small Font Size:</label>
-                            <input type="number" id="small_font_size" name="small_font_size" value="{{ config.fonts.small_font_size }}">
+                            <input type="number" id="small_font_size" name="small_font_size"
+                                value="{{ config.fonts.small_font_size }}">
                         </div>
                     </div>
                     <div class="font-group">
                         <h3>Spotify Display Fonts</h3>
                         <div class="form-group">
                             <label for="spot_large_font_path">Spotify Large Font Path:</label>
-                            <input type="text" id="spot_large_font_path" name="spot_large_font_path" value="{{ config.fonts.spot_large_font_path }}">
+                            <input type="text" id="spot_large_font_path" name="spot_large_font_path"
+                                value="{{ config.fonts.spot_large_font_path }}">
                         </div>
                         <div class="form-group">
                             <label for="spot_large_font_size">Spotify Large Font Size:</label>
-                            <input type="number" id="spot_large_font_size" name="spot_large_font_size" value="{{ config.fonts.spot_large_font_size }}">
+                            <input type="number" id="spot_large_font_size" name="spot_large_font_size"
+                                value="{{ config.fonts.spot_large_font_size }}">
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="spot_medium_font_path">Spotify Medium Font Path:</label>
-                            <input type="text" id="spot_medium_font_path" name="spot_medium_font_path" value="{{ config.fonts.spot_medium_font_path }}">
+                            <input type="text" id="spot_medium_font_path" name="spot_medium_font_path"
+                                value="{{ config.fonts.spot_medium_font_path }}">
                         </div>
                         <div class="form-group">
                             <label for="spot_medium_font_size">Spotify Medium Font Size:</label>
-                            <input type="number" id="spot_medium_font_size" name="spot_medium_font_size" value="{{ config.fonts.spot_medium_font_size }}">
+                            <input type="number" id="spot_medium_font_size" name="spot_medium_font_size"
+                                value="{{ config.fonts.spot_medium_font_size }}">
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="spot_small_font_path">Spotify Small Font Path:</label>
-                            <input type="text" id="spot_small_font_path" name="spot_small_font_path" value="{{ config.fonts.spot_small_font_path }}">
+                            <input type="text" id="spot_small_font_path" name="spot_small_font_path"
+                                value="{{ config.fonts.spot_small_font_path }}">
                         </div>
                         <div class="form-group">
                             <label for="spot_small_font_size">Spotify Small Font Size:</label>
-                            <input type="number" id="spot_small_font_size" name="spot_small_font_size" value="{{ config.fonts.spot_small_font_size }}">
+                            <input type="number" id="spot_small_font_size" name="spot_small_font_size"
+                                value="{{ config.fonts.spot_small_font_size }}">
                         </div>
                     </div>
                 </div>
@@ -475,21 +643,27 @@
                     <div>
                         <div class="form-group">
                             <label for="ap_ssid">Access Point SSID:</label>
-                            <input type="text" id="ap_ssid" name="ap_ssid" value="{{ config.get('wifi', {}).get('ap_ssid', 'Neonwifi-Manager') }}" placeholder="Neonwifi-Manager">
+                            <input type="text" id="ap_ssid" name="ap_ssid"
+                                value="{{ config.get('wifi', {}).get('ap_ssid', 'Neonwifi-Manager') }}"
+                                placeholder="Neonwifi-Manager">
                             <small>SSID for the WiFi manager access point</small>
                         </div>
                     </div>
                     <div>
                         <div class="form-group">
                             <label for="ap_ip">Access Point IP(leave last digit as 1):</label>
-                            <input type="text" id="ap_ip" name="ap_ip" value="{{ config.get('wifi', {}).get('ap_ip', '192.168.42.1') }}" placeholder="192.168.42.1">
+                            <input type="text" id="ap_ip" name="ap_ip"
+                                value="{{ config.get('wifi', {}).get('ap_ip', '192.168.42.1') }}"
+                                placeholder="192.168.42.1">
                             <small>IP address for the WiFi manager access point</small>
                         </div>
                     </div>
                     <div>
                         <div class="form-group">
                             <label for="rescan_time">WiFi Rescan Time (seconds):</label>
-                            <input type="number" id="rescan_time" name="rescan_time" value="{{ config.get('wifi', {}).get('rescan_time', 600) }}" min="30" max="3600" step="30">
+                            <input type="number" id="rescan_time" name="rescan_time"
+                                value="{{ config.get('wifi', {}).get('rescan_time', 600) }}" min="30" max="3600"
+                                step="30">
                             <small>Time between WiFi network rescans (30-3600 seconds)</small>
                         </div>
                     </div>
@@ -532,23 +706,23 @@
                     </div>
                 </div>
             </div>
-            <div class="section"><h2>📝 Logging Configuration</h2>
+            <div class="section">
+                <h2>📝 Logging Configuration</h2>
                 <div class="config-grid">
                     <div>
                         <div class="form-group">
                             <label for="max_log_lines">Max Log Lines per File:</label>
-                            <input type="number" id="max_log_lines" name="max_log_lines" 
-                                value="{{ config.get('logging', {}).get('max_log_lines', 10000) }}" 
-                                min="1000" max="100000" step="1000">
+                            <input type="number" id="max_log_lines" name="max_log_lines"
+                                value="{{ config.get('logging', {}).get('max_log_lines', 10000) }}" min="1000"
+                                max="100000" step="1000">
                             <small>Number of lines before rotating to a new log file</small>
                         </div>
                     </div>
                     <div>
                         <div class="form-group">
                             <label for="max_backup_files">Max Backup Files:</label>
-                            <input type="number" id="max_backup_files" name="max_backup_files" 
-                                value="{{ config.get('logging', {}).get('max_backup_files', 5) }}" 
-                                min="1" max="50">
+                            <input type="number" id="max_backup_files" name="max_backup_files"
+                                value="{{ config.get('logging', {}).get('max_backup_files', 5) }}" min="1" max="50">
                             <small>Number of backup log files to keep in backuplogs folder</small>
                         </div>
                     </div>
@@ -603,10 +777,11 @@
                 });
             }
         }
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             updateDisplayConfig();
             document.getElementById('display_type').addEventListener('change', updateDisplayConfig);
         });
     </script>
 </body>
+
 </html>

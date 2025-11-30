@@ -321,7 +321,7 @@ config-settings:
 	fi
 	@current_start_screen=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('settings', {}).get('start_screen', 'spotify'))" 2>/dev/null || echo "spotify"); \
 	current_fallback_city=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('settings', {}).get('fallback_city', ''))" 2>/dev/null || echo ""); \
-	current_clock_type=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('clock', {}).get('type', 'analog'))" 2>/dev/null || echo "analog"); \
+	current_clock_type=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('clock', {}).get('type', 'digital'))" 2>/dev/null || echo "digital"); \
 	current_clock_background=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('clock', {}).get('background', 'color'))" 2>/dev/null || echo "color"); \
 	current_clock_color=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('clock', {}).get('color', 'black'))" 2>/dev/null || echo "black"); \
 	current_use_gpsd=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('settings', {}).get('use_gpsd', True))" 2>/dev/null || echo "True"); \
@@ -337,7 +337,7 @@ config-settings:
 	read -p "  New Fallback City: " fallback_city; \
 	fallback_city=$${fallback_city:-$$current_fallback_city}; \
 	echo "  Clock Type: $$current_clock_type"; \
-	read -p "  New Clock Type [analog]: " clock_type; \
+	read -p "  New Clock Type [digital]: " clock_type; \
 	clock_type=$${clock_type:-$$current_clock_type}; \
 	echo "  Clock Background: $$current_clock_background"; \
 	read -p "  New Clock Background [color]: " clock_background; \
@@ -441,7 +441,7 @@ DEFAULT_CONFIG = { \
         'check_internet': True \
     }, \
     'clock': { \
-        'type': 'analog', \
+		'type': 'digital', \
         'background': 'color', \
         'color': 'black' \
     }, \
