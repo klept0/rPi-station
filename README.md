@@ -25,6 +25,8 @@ Raspberry Pi-based media & status display with a Flask web UI, Spotify + Last.fm
 
 ## 📦 Installation (Raspberry Pi)
 
+Headless Raspberry Pi OS Lite is recommended (desktop not required). A detailed checklist is in `HEADLESS_SETUP.md`.
+
 ```bash
 git clone https://github.com/klept0/rPi-station.git
 cd rPi-station
@@ -53,6 +55,16 @@ python neondisplay.py
 ```
 
 Open `http://127.0.0.1:5000`.
+
+### Headless Pre-Flight (Lite Image)
+
+Minimal non-interactive SPI enable & reboot before install:
+
+```bash
+sudo raspi-config nonint do_spi 0
+sudo raspi-config nonint do_i2c 0   # optional
+sudo reboot
+```
 
 ## 🔧 Make Targets (Core)
 
