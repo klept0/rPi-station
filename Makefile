@@ -115,9 +115,25 @@ setup-display:
 		echo "$(YELLOW)Existing LCD-show directory found; removing for a clean install...$(NC)"; \
 		rm -rf "$(LCD_SHOW_DIR)"; \
 	fi
-	git clone https://github.com/Shinigamy19/RaspberryPi3bplus-3.5inch-displayA-ILI9486-MPI3501-XPT2046 $(LCD_SHOW_DIR)
+	git clone https://github.com/goodtft/LCD-show.git $(LCD_SHOW_DIR)
 	cd $(LCD_SHOW_DIR) && chmod +x ./*
 	cd $(LCD_SHOW_DIR) && sudo ./LCD35-show
+
+sync-code:
+	@echo "$(GREEN)Syncing source code to $(PROJECT_DIR)...$(NC)"
+	sudo systemctl stop $(SERVICE_NAME).service 2>/dev/null || true
+	sudo mkdir -p $(PROJECT_DIR)
+	sudo chown $$USER:$$USER $(PROJECT_DIR)
+	@if command -v rsync >/dev/null 2>&1; then \
+		echo "Using rsync for efficient sync"; \
+		rsync -a --delete --exclude 'venv/' --exclude '.git/' --exclude 'LCD-show/' ./ $(PROJECT_DIR)/; \
+	else \
+		echo "rsync not found; falling back to cp -r (no delete)"; \
+		cp -r . $(PROJECT_DIR)/; \
+	fi
+	@echo "$(GREEN)Source code synced$(NC)"
+	sudo systemctl start $(SERVICE_NAME).service || true
+	@echo "$(GREEN)Service restarted after sync$(NC)"
 
 setup-service:
 	@echo "$(GREEN)Setting up systemd service...$(NC)"

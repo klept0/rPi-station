@@ -1460,127 +1460,104 @@ def regenerate_overlay_token():
         logger.error(f"Failed to regenerate overlay token: {e}")
         return {'error': 'failed'}, 500
 
-    @app.route('/rotate_overlay_key', methods=['POST'])
+@app.route('/rotate_overlay_key', methods=['POST'])
 def rotate_overlay_key():
-        """Rotate the overlay encryption key and re-encrypt stored overlay token.
-        This will generate a new key file and re-encrypt the token into `overlay.encrypted_token`.
-        Returns the new token plaintext in response if available.
-        """
-        try:
-            cfg = load_config()
-            overlay_cfg = cfg.get('overlay', {})
-            # get plain token (if encrypted, decrypt)
-            token_plain = get_overlay_token_from_config(cfg)
-            if not token_plain:
-                # if no token is set, regenerate one
-                import secrets
-                token_plain = secrets.token_hex(16)
-            if not HAS_CRYPTO:
-                return {'error': 'cryptography not installed'}, 500
-            key_path = os.path.join('secrets', 'overlay_key.key')
-            os.makedirs('secrets', exist_ok=True)
-            new_k = Fernet.generate_key()
-            with open(key_path, 'wb') as kf:
-                kf.write(new_k)
-            os.chmod(key_path, 0o600)
-            f = Fernet(new_k)
-            enc = f.encrypt(token_plain.encode('utf-8'))
-            overlay_cfg['encrypted_token'] = enc.decode('utf-8')
-            overlay_cfg['token'] = ''
-            overlay_cfg['encrypted'] = True
-            cfg['overlay'] = overlay_cfg
-            save_config(cfg)
-            return {'token': token_plain}, 200
-        except Exception as e:
-            logger = logging.getLogger('Launcher')
-            logger.error(f"Failed to rotate overlay key: {e}")
-            return {'error': 'failed'}, 500
+    """Rotate the overlay encryption key and re-encrypt stored overlay token.
+    Generates a new key file and re-encrypts the token into `overlay.encrypted_token`.
+    Returns the plaintext token.
+    """
+    try:
+        cfg = load_config()
+        overlay_cfg = cfg.get('overlay', {})
+        token_plain = get_overlay_token_from_config(cfg)
+        if not token_plain:
+            import secrets
+            token_plain = secrets.token_hex(16)
+        if not HAS_CRYPTO:
+            return {'error': 'cryptography not installed'}, 500
+        key_path = os.path.join('secrets', 'overlay_key.key')
+        os.makedirs('secrets', exist_ok=True)
+        new_k = Fernet.generate_key()
+        with open(key_path, 'wb') as kf:
+            kf.write(new_k)
+        os.chmod(key_path, 0o600)
+        f = Fernet(new_k)
+        enc = f.encrypt(token_plain.encode('utf-8'))
+        overlay_cfg['encrypted_token'] = enc.decode('utf-8')
+        overlay_cfg['token'] = ''
+        overlay_cfg['encrypted'] = True
+        cfg['overlay'] = overlay_cfg
+        save_config(cfg)
+        return {'token': token_plain}, 200
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Failed to rotate overlay key: {e}")
+        return {'error': 'failed'}, 500
 
 
 @app.route('/events', methods=['POST'])
 @rate_limiter(max_calls=120, period=60)
 def ingest_event():
-        """Endpoint for HUD (local) to POST events for streaming to overlay clients."""
-        global recent_events, event_condition
-        # If overlay is enabled, require a shared token to accept posts
-        cfg_local = load_config()
-        overlay_cfg = cfg_local.get('overlay', {})
-        if not overlay_cfg.get('enabled', False):
-            return 'Overlay disabled', 403
-        # overlay enabled, require token or HMAC
-        if overlay_cfg.get('enabled', False):
-            expected_token = get_overlay_token_from_config(cfg_local)
-            header_token = request.headers.get('X-Overlay-Token')
-            if expected_token and header_token and header_token == expected_token:
-                pass
-            else:
-                # Try HMAC if configured
-                if overlay_cfg.get('hmac_enabled') and overlay_cfg.get('hmac_secret'):
-                    try:
-                        body_bytes = request.get_data() or b''
-                        if not verify_hmac(body_bytes, overlay_cfg.get('hmac_secret')):
-                            logger = logging.getLogger('Launcher')
-                            logger.warning('Overlay event rejected: invalid HMAC')
-                            return 'Invalid signature', 403
-                    except Exception:
+    """Endpoint for HUD (local) to POST events for streaming to overlay clients."""
+    global recent_events, event_condition
+    cfg_local = load_config()
+    overlay_cfg = cfg_local.get('overlay', {})
+    if not overlay_cfg.get('enabled', False):
+        return 'Overlay disabled', 403
+    if overlay_cfg.get('enabled', False):
+        expected_token = get_overlay_token_from_config(cfg_local)
+        header_token = request.headers.get('X-Overlay-Token')
+        if not (expected_token and header_token and header_token == expected_token):
+            if overlay_cfg.get('hmac_enabled') and overlay_cfg.get('hmac_secret'):
+                try:
+                    body_bytes = request.get_data() or b''
+                    if not verify_hmac(body_bytes, overlay_cfg.get('hmac_secret')):
+                        logger = logging.getLogger('Launcher')
+                        logger.warning('Overlay event rejected: invalid HMAC')
                         return 'Invalid signature', 403
-                else:
-                    # no valid token or hmac configured; reject
-                    return 'Invalid token', 403
-            # Require local requests (loopback)
-            ip = request.remote_addr
-            if ip not in ('127.0.0.1', '::1'):
-                logger = logging.getLogger('Launcher')
-                logger.warning(f'Overlay event rejected: non-local IP {ip}')
-                return 'Invalid source', 403
-        try:
-            data = request.get_json(force=True)
-            if not data or 'type' not in data:
-                return 'Invalid payload', 400
-            ev = {
-                'type': data.get('type'),
-                'timestamp': int(time.time()),
-                'payload': data
-            }
-            # normalize common sources
-            src = data.get('source') or data.get('service') or data.get('source_name')
-            if src:
-                ev['source'] = src
-            # also store in notifications area for HUD to retrieve
-            try:
-                if 'notifications' not in globals():
-                    globals()['notifications'] = []
-                notifications = globals().get('notifications')
-                notifications.append(ev)
-                # cap 20 entries
-                if len(notifications) > 20:
-                    globals()['notifications'] = notifications[-20:]
-            except Exception:
-                pass
-            with event_condition:
-                recent_events.append(ev)
-                # cap events
-                if len(recent_events) > 30:
-                    recent_events = recent_events[-30:]
-                event_condition.notify_all()
-            # log notification for HUD and store in notifications as well
-            try:
-                notifications = globals().get('notifications', [])
-                notifications.append(ev)
-                if len(notifications) > 30:
-                    globals()['notifications'] = notifications[-30:]
-            except Exception:
-                pass
-            # persist notifications
-            try:
-                store_notification(ev)
-            except Exception:
-                pass
-            return 'ok', 200
-        except Exception as e:
+                except Exception:
+                    return 'Invalid signature', 403
+            else:
+                return 'Invalid token', 403
+        ip = request.remote_addr
+        if ip not in ('127.0.0.1', '::1'):
             logger = logging.getLogger('Launcher')
-            logger.error(f"Error ingesting event: {e}")
-            return 'error', 500
+            logger.warning(f'Overlay event rejected: non-local IP {ip}')
+            return 'Invalid source', 403
+    try:
+        data = request.get_json(force=True)
+        if not data or 'type' not in data:
+            return 'Invalid payload', 400
+        ev = {'type': data.get('type'), 'timestamp': int(time.time()), 'payload': data}
+        # normalize common sources
+        src = data.get('source') or data.get('service') or data.get('source_name')
+        if src:
+            ev['source'] = src
+        # also store in notifications area for HUD to retrieve (cap 20)
+        try:
+            if 'notifications' not in globals():
+                globals()['notifications'] = []
+            notifications = globals().get('notifications')
+            notifications.append(ev)
+            if len(notifications) > 20:
+                globals()['notifications'] = notifications[-20:]
+        except Exception:
+            pass
+        with event_condition:
+            recent_events.append(ev)
+            if len(recent_events) > 30:
+                recent_events = recent_events[-30:]
+            event_condition.notify_all()
+        # persist notifications
+        try:
+            store_notification(ev)
+        except Exception:
+            pass
+        return 'ok', 200
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Error ingesting event: {e}")
+        return 'error', 500
 
 
 def event_stream_generator():
@@ -1982,85 +1959,69 @@ def xbox_status():
 @app.route('/device_notify', methods=['POST'])
 @rate_limiter(max_calls=180, period=60)
 def device_notify():
-        """A dedicated endpoint for Wyze, Konnected, Xbox (or other) webhooks.
-        The payload should contain a `source` or `service` field identifying the origin.
-        Token checking and local-only checks apply similar to `/events`.
-        """
-        cfg = load_config()
-        services_cfg = cfg.get('services', {})
-        # check header token if provided for any service-specific webhook
-        try:
-            data = request.get_json(force=True)
-        except Exception:
-            return 'Invalid JSON', 400
-        source = (data.get('source') or data.get('service') or data.get('source_name') or '').lower()
-        # map source to service configs
-        service_cfg = services_cfg.get(source, {}) if source else None
-    if service_cfg:
-            expected_token = service_cfg.get('webhook_token')
-            if service_cfg.get('enabled', False):
-                if expected_token:
-                    header_token = request.headers.get('X-Webhook-Token')
-                    if header_token != expected_token:
-                        # Try HMAC with service webhook secret if configured
-                        s_hmac_secret = service_cfg.get('webhook_hmac_secret')
-                        s_hmac_enabled = service_cfg.get('webhook_hmac_enabled', False)
-                        body_bytes = request.get_data() or b''
-                        if s_hmac_enabled and s_hmac_secret and verify_hmac(body_bytes, s_hmac_secret):
-                            pass
-                        else:
-                            return 'Invalid token', 403
-                # accept event and forward to event stream and notifications
-                # Wyze-specific handling: optional snapshot url
-                if source == 'wyze':
-                    snapshot_url = data.get('snapshot_url') or data.get('snapshot') or data.get('image_url')
-                    if snapshot_url:
-                        try:
-                            # try to fetch and save
-                            headers = {'User-Agent': 'NeonDisplay/1.0'}
-                            resp = session.get(snapshot_url, headers=headers, timeout=10)
-                            resp.raise_for_status()
-                            os.makedirs('static', exist_ok=True)
-                            with open('static/wyze_last.jpg', 'wb') as f:
-                                f.write(resp.content)
-                            ev['snapshot'] = '/static/wyze_last.jpg'
-                            # Attach image URL so overlay may show thumbnails
-                        except Exception as e:
-                            logger = logging.getLogger('Launcher')
-                            logger.warning(f"Wyze snapshot fetch failed: {e}")
-    else:
-            # fallback to overlay token if configured
-            overlay_cfg = cfg.get('overlay', {})
-            if overlay_cfg.get('enabled'):
-                expected_token = get_overlay_token_from_config(cfg)
-                header_token = request.headers.get('X-Overlay-Token')
+    """Endpoint for Wyze, Konnected, Xbox (or other) webhooks.
+    Requires either service webhook token/HMAC or overlay token/HMAC when overlay is enabled.
+    """
+    cfg = load_config()
+    services_cfg = cfg.get('services', {})
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        return 'Invalid JSON', 400
+    source = (data.get('source') or data.get('service') or data.get('source_name') or '').lower()
+    service_cfg = services_cfg.get(source, {}) if source else None
+    # Service-specific auth
+    if service_cfg and service_cfg.get('enabled', False):
+        expected_token = service_cfg.get('webhook_token')
+        if expected_token:
+            header_token = request.headers.get('X-Webhook-Token')
+            if header_token != expected_token:
+                s_hmac_secret = service_cfg.get('webhook_hmac_secret')
+                s_hmac_enabled = service_cfg.get('webhook_hmac_enabled', False)
                 body_bytes = request.get_data() or b''
-                if expected_token and header_token and header_token == expected_token:
-                    pass
+                if not (s_hmac_enabled and s_hmac_secret and verify_hmac(body_bytes, s_hmac_secret)):
+                    return 'Invalid token', 403
+        # Wyze snapshot handling
+        if source == 'wyze':
+            snapshot_url = data.get('snapshot_url') or data.get('snapshot') or data.get('image_url')
+            if snapshot_url:
+                try:
+                    headers = {'User-Agent': 'NeonDisplay/1.0'}
+                    resp = session.get(snapshot_url, headers=headers, timeout=10)
+                    resp.raise_for_status()
+                    os.makedirs('static', exist_ok=True)
+                    with open('static/wyze_last.jpg', 'wb') as f:
+                        f.write(resp.content)
+                    data['snapshot'] = '/static/wyze_last.jpg'
+                except Exception as e:
+                    logger = logging.getLogger('Launcher')
+                    logger.warning(f"Wyze snapshot fetch failed: {e}")
+    else:
+        # Fallback to overlay auth if overlay enabled
+        overlay_cfg = cfg.get('overlay', {})
+        if overlay_cfg.get('enabled'):
+            expected_token = get_overlay_token_from_config(cfg)
+            header_token = request.headers.get('X-Overlay-Token')
+            body_bytes = request.get_data() or b''
+            if not (expected_token and header_token and header_token == expected_token):
+                if overlay_cfg.get('hmac_enabled') and overlay_cfg.get('hmac_secret'):
+                    if not verify_hmac(body_bytes, overlay_cfg.get('hmac_secret')):
+                        return 'Invalid signature', 403
                 else:
-                    # Try overlay signature if configured
-                    if overlay_cfg.get('hmac_enabled') and overlay_cfg.get('hmac_secret'):
-                        if not verify_hmac(body_bytes, overlay_cfg.get('hmac_secret')):
-                            return 'Invalid signature', 403
-                    else:
-                        return 'Invalid token', 403
-            else:
-                # If no overlay and no service mapping, reject
-                return 'No service configured', 403
-        # now normalize and add to events
+                    return 'Invalid token', 403
+        else:
+            return 'No service configured', 403
     ev = {'type': 'device_notify', 'timestamp': int(time.time()), 'payload': data}
-        if source:
-            ev['source'] = source
-        # Konnected: parse sensors field into readable message
-        if source == 'konnected':
-            try:
-                device = data.get('device') or data.get('sensor') or data.get('name')
-                state = data.get('state') or data.get('value') or data.get('status')
-                if device and state is not None:
-                    ev['message'] = f"{device}: {state}"
-            except Exception:
-                pass
-        # Xbox: if payload contains presence/achievement, transform to message
+    if source:
+        ev['source'] = source
+    if source == 'konnected':
+        try:
+            device = data.get('device') or data.get('sensor') or data.get('name')
+            state = data.get('state') or data.get('value') or data.get('status')
+            if device and state is not None:
+                ev['message'] = f"{device}: {state}"
+        except Exception:
+            pass
         if source == 'xbox':
             try:
                 event_type = data.get('event') or data.get('type')
@@ -2599,8 +2560,8 @@ def generate_music_stats(max_items=1000):
         logger = logging.getLogger('Launcher')
         logger.error(f"Error generating music stats: {e}")
         try:
-            # module-level conn is kept open
-        except:
+            pass  # module-level conn is kept open
+        except Exception:
             pass
         return {}, {}, 0, 0, 0
 
@@ -2626,7 +2587,7 @@ def cleanup():
     logger.info("🧹 Performing cleanup...")
     functions_with_conn = [update_song_count, load_song_counts, generate_music_stats]
     for func in functions_with_conn:
-        # Close the module-level connection once
+        pass  # placeholder loop (kept for future extension)
     try:
         global _db_conn
         if _db_conn:
@@ -2752,7 +2713,7 @@ def start_background_threads():
         cfg = load_config()
         xbox_cfg = cfg.get('services', {}).get('xbox', {})
         if xbox_cfg.get('enabled', False) and (xbox_cfg.get('presence_url') or xbox_cfg.get('access_token') or xbox_cfg.get('refresh_token')):
-            Thread(target=xbox_polling_loop, daemon=True).start()
+            threading.Thread(target=xbox_polling_loop, daemon=True).start()
     except Exception:
         pass
 
