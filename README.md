@@ -1,7 +1,208 @@
-# NeonDisplay
+# rPi-station
 
-A comprehensive Raspberry Pi-based display system with weather information, Spotify integration, and web-based control interface.
-For 3.5" TFT, Display Hat Mini, and Waveshare 2.13" e-ink screens.
+A Raspberry Pi-based media and status display with a Flask web UI, Spotify/Last.fm integration, live overlay events via SSE, device webhooks (Wyze, Konnected, Xbox), notifications, and secure token handling. Supports small TFT/e-paper displays or framebuffer, with an optional HUD streaming now playing and events.
+
+## 🌟 Features
+
+### Display Modes
+
+- Weather: current conditions + forecast
+- Spotify: now playing with progress
+- Clock: digital/analog, configurable backgrounds
+- Waveshare e-paper: combined layout
+
+### Music Integration
+
+- Spotify control: play, pause, skip, volume
+- Music statistics: play counts and artist stats
+- Search & queue: search Spotify and manage queue
+- Current track display: real-time now playing info
+
+### Web Interface
+
+- Responsive UI (desktop/mobile)
+- Theme toggle (dark/light)
+- Live updates (SSE)
+- Advanced Config to manage all settings
+
+### Hardware Support
+
+- Supported displays:
+  - Framebuffer (TFT 3.5")
+  - ST7789 (Display Hat Mini)
+  - Waveshare E-Paper
+- GPIO buttons: configurable for ST7789
+- Touch: 3.5" TFT touch support
+- GPSD integration (optional)
+
+## 📦 Installation
+
+### Quick Start (Local Dev)
+
+```bash
+cd /path/to/rPi-station
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python neondisplay.py
+```
+
+Open the Web UI shown in logs (e.g., `http://127.0.0.1:5000`).
+
+### Raspberry Pi Setup (Step-by-Step)
+
+1. System Dependencies
+
+   ```bash
+   make system-deps
+   ```
+
+2. Python Environment & Packages
+
+   ```bash
+   make python-packages
+   ```
+
+3. Display Setup (⚠️ will reboot)
+
+   ```bash
+   make setup-display
+   ```
+
+4. System Service Setup
+
+   ```bash
+   make setup-service
+   ```
+
+5. Configuration
+
+   ```bash
+   make config
+   ```
+
+## ⚙️ Configuration
+
+Use the Advanced Config page to set:
+
+-
+- API keys: OpenWeather, Spotify client id/secret, optional Google Geocoding
+- Last.fm: enable + scrobble thresholds
+- Display: framebuffer/ST7789, rotation, pins, fonts
+- Overlay: token, encryption, event types
+- Services: Wyze/Konnected webhooks and Xbox polling
+
+CLI helpers via `make` targets are available (optional):
+
+-
+- `make config-api`, `make config-display`, `make config-fonts`, `make config-buttons`, `make config-wifi`, `make config-settings`
+
+## 🚀 Usage
+
+### Start/Status/Logs
+
+```bash
+make start
+make status
+make logs
+```
+
+### Web UI
+
+```
+http://[raspberry-pi-ip]:5000
+```
+
+## 🧪 Running Tests
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pytest -q
+```
+
+See `TESTING.md` for E2E scenarios.
+
+## 🎵 Spotify Integration
+
+1. Create a Spotify Developer application
+2. Set redirect URI to `http://127.0.0.1:5000`
+3. Enter Client ID and Secret in Advanced Config
+4. Authenticate through the web interface
+
+## 📊 Music Statistics
+
+```
+http://[raspberry-pi-ip]:5000/music_stats
+```
+
+- Most played songs and artists
+- Total play counts
+- Interactive bar charts
+
+## 🔧 Advanced Features
+
+- Display types: Framebuffer, ST7789, Waveshare e-paper, Dummy
+- Location: GPSD + Google Geolocation, fallback city
+- Fonts/buttons/wifi: configurable via Advanced Config
+
+## 🛠️ Maintenance
+
+- Update packages: `make update-packages`
+- View config: `make view-config`
+- Reset config: `make reset-config`
+- Cleanup: `make clean`
+
+## 🐛 Troubleshooting
+
+- evdev on macOS: skip for local dev; it’s Linux-only
+- Encryption: install `cryptography` for token encryption
+- Homebrew Python: use a venv for installing packages
+- HMAC: verify signature matches raw body and header format
+
+## 🔐 Security & Overlay
+
+- Rate limiting on `/events` and `/device_notify`
+- HMAC (sha256) validation support:
+  - Overlay: enable `overlay_hmac_enabled` + set `overlay_hmac_secret`
+  - Wyze/Konnected: `webhook_hmac_enabled` + `webhook_hmac_secret`
+  - Xbox webhook proxy: optional HMAC
+- Overlay token encryption (Fernet):
+  - Key source `file` creates `secrets/overlay_key.key`
+  - Key source `env` reads `OVERLAY_SECRET_KEY` (configurable)
+  - Regenerate: `POST /regenerate_overlay_token`
+  - Rotate key: `POST /rotate_overlay_key`
+- Overlay posts use header `X-Overlay-Token` on `/events`
+
+## 🔔 Notifications UI
+
+- JSON: `/notifications` (paging + filters)
+- Filters: `/notifications/filters`
+- Clear: `/notifications/clear` (POST)
+- Delete single: `/notifications/<id>` (DELETE)
+- UI: `/notifications/ui`
+- Storage: SQLite (`neon_notifications.db`)
+
+## 🎮 Xbox Integration
+
+- Client id/secret in Services → Xbox
+- Presence via Microsoft Graph (with token) or proxy URL
+- UI shows status and allows disconnect
+- Multi-account viewer planned
+
+## 📡 SSE Overlay
+
+- Stream: `/event_stream`
+- HUD/services post to `/events` with token/HMAC validation
+
+## 🤖 CI: GitHub Actions
+
+Workflow at `.github/workflows/ci.yml` runs pytest on push/PR to `main`/`master`.
+
+## 📄 License
+
+See `LICENSE`.
 
 ## 🌟 Features
 
@@ -11,80 +212,86 @@ For 3.5" TFT, Display Hat Mini, and Waveshare 2.13" e-ink screens.
 
 - **Weather Display**: Current weather conditions with forecasts
 - **Spotify Integration**: Now playing display with progress bars
-- **Clock Display**: Digital and analog clocks with customizable backgrounds
-- Waveshare_epd has a different design with all three at once
+
+# rPi-station
+
+A Raspberry Pi-based media and status display with a Flask web UI, Spotify/Last.fm integration, live overlay events via SSE, device webhooks (Wyze, Konnected, Xbox), notifications, and secure token handling. Supports small TFT/e-paper displays or framebuffer, with an optional HUD streaming now playing and events.
+
+## 🌟 Features
+
+### Display Modes
+
+- Weather: current conditions + forecast
+- Spotify: now playing with progress
+- Clock: digital/analog, configurable backgrounds
+- Waveshare e-paper: combined layout
 
 ### Music Integration
 
-- **Spotify Control**: Play, pause, skip tracks, and control volume
-- **Music Statistics**: Track play counts and artist statistics
-- **Search & Queue**: Search Spotify and manage playback queue
-- **Current Track Display**: Real-time now playing information
+- Spotify control: play, pause, skip, volume
+- Music statistics: play counts and artist stats
+- Search & queue: search Spotify and manage queue
+- Current track display: real-time now playing info
 
 ### Web Interface
 
-- **Responsive Design**: Works on desktop and mobile devices
-- **Dark/Light Theme**: Toggle between themes
-- **Real-time Updates**: Live track information and system status
-- **Configuration Management**: Web-based configuration interface
+- Responsive UI (desktop/mobile)
+- Theme toggle (dark/light)
+- Live updates (SSE)
+- Advanced Config to manage all settings
 
 ### Hardware Support
 
-- **Supported Display Types**:
+- Supported displays:
   - Framebuffer (TFT 3.5")
-  - ST7789 (DisplayHatMini)
+  - ST7789 (Display Hat Mini)
   - Waveshare E-Paper
-- **GPIO Button Control**: Configurable physical buttons for st7789
-- **Touch Control**: Touch support for 3.5" tft
-- **GPS Integration**: Location services with GPSD support
 
-## 🛠️ Hardware Requirements
-
-- Raspberry Pi
-- Supported display (3.5" TFT, ST7789, or E-Paper)(optional)
-- Internet connection (WiFi or Ethernet)
-- Optional: GPS module for location services
+- GPIO buttons: configurable for ST7789
+- Touch: 3.5" TFT touch support
+- GPSD integration (optional)
 
 ## 📦 Installation
 
-### Quick Install
+### Quick Start (Local Dev)
 
 ```bash
-# Clone the repository
-https://github.com/NeonLightning/NeonDisplay.git
-cd Hud35
-
-# Run complete installation (excluding display drivers)
-sudo make
+cd /path/to/rPi-station
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python neondisplay.py
 ```
 
-### Step-by-Step Installation
+Open the Web UI shown in logs (e.g., `http://127.0.0.1:5000`).
 
-1. **System Dependencies**
+### Raspberry Pi Setup (Step-by-Step)
+
+1. System Dependencies
 
    ```bash
    make system-deps
    ```
 
-2. **Python Environment & Packages**
+2. Python Environment & Packages
 
    ```bash
    make python-packages
    ```
 
-3. **Display Setup** (⚠️ **Will reboot system**)
+3. Display Setup (⚠️ will reboot)
 
    ```bash
    make setup-display
    ```
 
-4. **System Service Setup**
+4. System Service Setup
 
    ```bash
    make setup-service
    ```
 
-5. **Configuration**
+5. Configuration
 
    ```bash
    make config
@@ -92,125 +299,125 @@ sudo make
 
 ## ⚙️ Configuration
 
-### API Keys Setup
+Use the Advanced Config page to set:
 
-You'll need to configure the following API keys:
+- API keys: OpenWeather, Spotify client id/secret, optional Google Geocoding
+- Last.fm: enable + scrobble thresholds
+- Display: framebuffer/ST7789, rotation, pins, fonts
+- Overlay: token, encryption, event types
+- Services: Wyze/Konnected webhooks and Xbox polling
 
-- **OpenWeatherMap**: Free weather API key
-- **Spotify**: Client ID and Secret for music integration
-- **Google Geolocation**: Optional, for precise location
+CLI helpers via `make` targets are available (optional):
 
-### Configuration Methods
-
-**Web Interface** (Recommended and needed to authenticate):
-
-- Access the web UI after installation
-- Navigate to "Advanced Configuration"
-- Fill in API keys and settings
-
-**Command Line**:
-
-```bash
-# Interactive configuration walk-through
-make config
-
-# Individual configuration sections
-make config-api
-make config-display
-make config-fonts
-make config-buttons
-make config-wifi
-make config-settings
-```
-
-### Key Configuration Sections
-
-- **API Configuration**: Weather and Spotify API keys
-- **Display Settings**: Screen type, rotation, timeout
-- **Font Configuration**: Custom fonts for different display elements
-- **Button Mapping**: GPIO pins for physical buttons
-- **WiFi Settings**: Access point configuration
-- **Clock Appearance**: Digital/analog with background options
+- `make config-api`, `make config-display`, `make config-fonts`, `make config-buttons`, `make config-wifi`, `make config-settings`
 
 ## 🚀 Usage
 
-### Starting the System
+### Start/Status/Logs
 
 ```bash
-# Start the service
 make start
-
-# Check status
 make status
-
-# View logs
 make logs
 ```
 
-### Web Interface
+### Web UI
 
-After starting, access the web interface at:
-
-```
+```text
 http://[raspberry-pi-ip]:5000
 ```
 
-### Running the Test Suite
-
-Install the development/test dependencies and run pytest:
+## 🧪 Running Tests
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 pytest -q
 ```
 
-For a full guide on tests and a detailed end-to-end testing scenario, see `TESTING.md` in the project root.
-
-```
-
-### Service Management
-
-```bash
-# Start/stop/restart service
-make start
-make stop
-make restart
-
-# View real-time logs
-make tail
-```
+See `TESTING.md` for E2E scenarios.
 
 ## 🎵 Spotify Integration
 
-### Authentication
-
 1. Create a Spotify Developer application
 2. Set redirect URI to `http://127.0.0.1:5000`
-3. Enter Client ID and Secret in configuration
+3. Enter Client ID and Secret in Advanced Config
 4. Authenticate through the web interface
-
-### Features
-
-- Now playing display with progress bars
-- Playback controls (play, pause, skip, volume)
-- Search and add to queue
-- Music statistics and play history
 
 ## 📊 Music Statistics
 
-Access detailed music statistics at:
-
-```
+```text
 http://[raspberry-pi-ip]:5000/music_stats
 ```
 
-Features:
-
+-
 - Most played songs and artists
 - Total play counts
 - Interactive bar charts
+
+## 🔧 Advanced Features
+
+- Display types: Framebuffer, ST7789, Waveshare e-paper, Dummy
+- Location: GPSD + Google Geolocation, fallback city
+- Fonts/buttons/wifi: configurable via Advanced Config
+
+## 🛠️ Maintenance
+
+- Update packages: `make update-packages`
+- View config: `make view-config`
+- Reset config: `make reset-config`
+- Cleanup: `make clean`
+
+## 🐛 Troubleshooting
+
+- evdev on macOS: skip for local dev; it’s Linux-only
+- Encryption: install `cryptography` for token encryption
+- Homebrew Python: use a venv for installing packages
+- HMAC: verify signature matches raw body and header format
+
+## 🔐 Security & Overlay
+
+- Rate limiting on `/events` and `/device_notify`
+- HMAC (sha256) validation support:
+  - Overlay: enable `overlay_hmac_enabled` + set `overlay_hmac_secret`
+  - Wyze/Konnected: `webhook_hmac_enabled` + `webhook_hmac_secret`
+  - Xbox webhook proxy: optional HMAC
+- Overlay token encryption (Fernet):
+  - Key source `file` creates `secrets/overlay_key.key`
+  - Key source `env` reads `OVERLAY_SECRET_KEY` (configurable)
+  - Regenerate: `POST /regenerate_overlay_token`
+  - Rotate key: `POST /rotate_overlay_key`
+- Overlay posts use header `X-Overlay-Token` on `/events`
+
+## 🔔 Notifications UI
+
+- JSON: `/notifications` (paging + filters)
+- Filters: `/notifications/filters`
+- Clear: `/notifications/clear` (POST)
+- Delete single: `/notifications/<id>` (DELETE)
+- UI: `/notifications/ui`
+- Storage: SQLite (`neon_notifications.db`)
+
+## 🎮 Xbox Integration
+
+- Client id/secret in Services → Xbox
+- Presence via Microsoft Graph (with token) or proxy URL
+- UI shows status and allows disconnect
+- Multi-account viewer planned
+
+## 📡 SSE Overlay
+
+- Stream: `/event_stream`
+- HUD/services post to `/events` with token/HMAC validation
+
+## 🤖 CI: GitHub Actions
+
+Workflow at `.github/workflows/ci.yml` runs pytest on push/PR to `main`/`master`.
+
+## 📄 License
+
+See `LICENSE`.
 
 ## 🔧 Advanced Features
 
