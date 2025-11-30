@@ -5,3 +5,4 @@ Pillow>=9.0
 numpy>=1.21
 pylast>=4.1
 evdev>=1.4
+cryptography>=39.0

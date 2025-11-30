@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="stylesheet" href="/static/colors.css">
+    <title>Notifications - NeonDisplay</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 20px;
+        }
+
+        .container {
+            background: var(--bg-secondary);
+            padding: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .notif {
+            border-bottom: 1px solid var(--border-color);
+            padding: 10px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin: 0;
+        }
+
+        .btn-danger {
+            background: var(--danger-bg);
+        }
+    </style>
+</head>
+
+<body data-theme="{{ ui_config.theme }}">
+    <div class="container">
+        <h1>Notifications</h1>
+        <div style="margin-bottom: 10px;">
+            <button onclick="clearNotifications()" class="btn-danger">Clear All</button>
+            <a href="/" style="margin-left: 10px;"><button>Back</button></a>
+        </div>
+        {% if notifications %}
+        {% for n in notifications %}
+        <div class="notif">
+            <div style="flex:1;">
+                <div><strong>{{ n.source or 'local' }}</strong> - <em>{{ n.type }}</em> - {{ n.timestamp }}</div>
+                <pre>{{ n.payload }}</pre>
+            </div>
+            <div style="width:120px; text-align:right;">
+                <button onclick="deleteNotification({{ n.id }})" class="btn-danger">Delete</button>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p>No notifications</p>
+        {% endif %}
+    </div>
+    <script>
+        async function clearNotifications() {
+            if (!confirm('Clear all notifications?')) return;
+            try {
+                const r = await fetch('/notifications/clear', { method: 'POST' });
+                if (r.ok) location.reload(); else alert('Failed');
+            } catch (e) { alert('Error'); }
+        }
+        async function deleteNotification(id) {
+            if (!confirm('Delete this notification?')) return;
+            try {
+                const r = await fetch(`/notifications/${id}`, { method: 'DELETE' });
+                if (r.ok) location.reload(); else alert('Failed');
+            } catch (e) { alert('Error'); }
+        }
+    </script>
+</body>
+
+</html>

@@ -227,6 +227,9 @@
     </button>
     <div class="container">
         <h1>⚙️ Advanced Configuration</h1>
+        <div style="text-align:right; margin-bottom: 10px;">
+            <a href="/notifications/ui"><button class="btn-secondary">View Notifications</button></a>
+        </div>
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         {% for category, message in messages %}
@@ -250,6 +253,59 @@
                         <input type="number" step="1" min="0" id="lastfm_min_seconds" name="lastfm_min_seconds"
                             value="{{ config.lastfm.min_scrobble_seconds }}">
                         <small>Minimum seconds a track must be played to qualify for scrobble</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <h3>Webhook Services</h3>
+                    <div class="form-group">
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="wyze_enabled" name="wyze_enabled" {% if
+                                config.services.wyze.enabled %}checked{% endif %}>
+                            <label for="wyze_enabled">Enable Wyze webhook listener</label>
+                        </div>
+                        <label for="wyze_webhook_token">Wyze webhook token</label>
+                        <input type="text" id="wyze_webhook_token" name="wyze_webhook_token"
+                            value="{{ config.services.wyze.webhook_token }}">
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="konnected_enabled" name="konnected_enabled" {% if
+                                config.services.konnected.enabled %}checked{% endif %}>
+                            <label for="konnected_enabled">Enable Konnected webhook listener</label>
+                        </div>
+                        <label for="konnected_webhook_token">Konnected webhook token</label>
+                        <input type="text" id="konnected_webhook_token" name="konnected_webhook_token"
+                            value="{{ config.services.konnected.webhook_token }}">
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="xbox_enabled" name="xbox_enabled" {% if
+                                config.services.xbox.enabled %}checked{% endif %}>
+                            <label for="xbox_enabled">Enable Xbox polling/integration</label>
+                        </div>
+                        <label for="xbox_client_id">Xbox client id</label>
+                        <input type="text" id="xbox_client_id" name="xbox_client_id"
+                            value="{{ config.services.xbox.client_id }}">
+                        <label for="xbox_client_secret">Xbox client secret</label>
+                        <input type="text" id="xbox_client_secret" name="xbox_client_secret"
+                            value="{{ config.services.xbox.client_secret }}">
+                        <label for="xbox_poll_interval">Xbox poll interval (s)</label>
+                        <input type="number" id="xbox_poll_interval" name="xbox_poll_interval"
+                            value="{{ config.services.xbox.poll_interval }}" min="10">
+                        <label for="xbox_presence_url">Xbox presence URL (proxy)</label>
+                        <input type="text" id="xbox_presence_url" name="xbox_presence_url"
+                            value="{{ config.services.xbox.presence_url }}">
+                        <small>If enabled with valid creds, the launcher will poll the Xbox API and post presence
+                            events</small>
+                        <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+                            <a href="/xbox_connect"><button type="button" class="btn-success">🔗 Connect
+                                    Xbox</button></a>
+                            {% if config.services.xbox.refresh_token or config.services.xbox.access_token %}
+                            <div class="status success">Connected</div>
+                            {% else %}
+                            <div class="status">Not connected</div>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
                 {% if spotify_configured %}
@@ -461,12 +517,62 @@
                                 <input type="text" id="overlay_token" name="overlay_token"
                                     value="{{ config.overlay.token }}"
                                     placeholder="Shared secret to post events (required if enabled)">
+                                <div style="display:flex; gap:5px; align-items:center;">
+                                    <input type="text" id="overlay_token" name="overlay_token"
+                                        value="{{ config.overlay.token }}" placeholder="Shared secret" readonly
+                                        style="flex:1;" />
+                                    <button type="button" id="regenerate_token"
+                                        class="btn-secondary">Regenerate</button>
+                                    <button type="button" id="copy_token" class="btn-secondary">Copy</button>
+                                    <button type="button" id="rotate_key" class="btn-secondary">Rotate Key</button>
+                                </div>
                                 <small>Keep this secret; HUD will post events to neondisplay when enabled.</small>
+                            </div>
+                            <div class="form-group">
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="overlay_encrypt" name="overlay_encrypt" {% if
+                                        config.overlay.encrypted %}checked{% endif %}>
+                                    <label for="overlay_encrypt">Encrypt overlay token at rest</label>
+                                </div>
+                                <small>Encrypt the overlay token on disk using a generated key file in
+                                    `secrets/overlay_key.key` (stored with limited file permissions).</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Overlay event types</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="overlay_event_scrobble" name="overlay_event_scrobble" {%
+                                        if config.overlay.events.scrobble %}checked{% endif %}>
+                                    <label for="overlay_event_scrobble">Scrobble events</label>
+                                </div>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="overlay_event_track_change"
+                                        name="overlay_event_track_change" {% if config.overlay.events.track_change
+                                        %}checked{% endif %}>
+                                    <label for="overlay_event_track_change">Track change events</label>
+                                </div>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="overlay_event_cover_fallback"
+                                        name="overlay_event_cover_fallback" {% if config.overlay.events.cover_fallback
+                                        %}checked{% endif %}>
+                                    <label for="overlay_event_cover_fallback">Cover fallback events</label>
+                                </div>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="overlay_event_device_notify"
+                                        name="overlay_event_device_notify" {% if config.overlay.events.device_notify
+                                        %}checked{% endif %}>
+                                    <label for="overlay_event_device_notify">Device notifications</label>
+                                </div>
+                                <small>Control which events are posted to the overlay</small>
                             </div>
                             <div class="toggle-switch">
                                 <input type="checkbox" id="time_display" name="time_display" {% if
                                     config.settings.time_display %}checked{% endif %}>
                                 <label for="time_display">Show time display</label>
+                            </div>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="display_ip_on_main" name="display_ip_on_main" {% if
+                                    config.display_ip_on_main %}checked{% endif %}>
+                                <label for="display_ip_on_main">Show IP on main screen</label>
                             </div>
                             <div class="toggle-switch">
                                 <input type="checkbox" id="enable_current_track_display"
@@ -736,6 +842,49 @@
         </form>
     </div>
     <script>
+        // copy token to clipboard
+        document.addEventListener('DOMContentLoaded', () => {
+            const copyBtn = document.getElementById('copy_token');
+            const regenBtn = document.getElementById('regenerate_token');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', () => {
+                    const input = document.getElementById('overlay_token');
+                    if (input && input.value) {
+                        navigator.clipboard.writeText(input.value);
+                        alert('Overlay token copied to clipboard');
+                    }
+                });
+            }
+            if (regenBtn) {
+                regenBtn.addEventListener('click', async () => {
+                    try {
+                        const resp = await fetch('/regenerate_overlay_token', { method: 'POST' });
+                        if (!resp.ok) throw new Error('Failed');
+                        const data = await resp.json();
+                        const input = document.getElementById('overlay_token');
+                        if (input) input.value = data.token;
+                        alert('Overlay token regenerated');
+                    } catch (err) {
+                        alert('Unable to regenerate token: ' + err);
+                    }
+                });
+                const rotateKeyBtn = document.getElementById('rotate_key');
+                if (rotateKeyBtn) {
+                    rotateKeyBtn.addEventListener('click', async () => {
+                        try {
+                            const resp = await fetch('/rotate_overlay_key', { method: 'POST' });
+                            if (!resp.ok) throw new Error('Failed');
+                            const data = await resp.json();
+                            const input = document.getElementById('overlay_token');
+                            if (input) input.value = data.token;
+                            alert('Overlay key rotated and token re-encrypted. Token updated in the UI');
+                        } catch (err) {
+                            alert('Unable to rotate key: ' + err);
+                        }
+                    });
+                }
+            }
+        });
         function toggleTheme() {
             const currentTheme = document.body.getAttribute('data-theme');
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';

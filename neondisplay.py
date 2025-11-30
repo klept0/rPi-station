@@ -6,6 +6,12 @@ from collections import Counter
 from functools import wraps
 from logging.handlers import RotatingFileHandler
 import os, toml, time, requests, subprocess, sys, signal, urllib.parse, socket, logging, threading, json, hashlib, spotipy, io, sqlite3, shutil
+try:
+    from cryptography.fernet import Fernet
+    HAS_CRYPTO = True
+except Exception:
+    Fernet = None
+    HAS_CRYPTO = False
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from collections import OrderedDict
@@ -78,11 +84,38 @@ DEFAULT_CONFIG = {
         "progressbar_display": True,
         "enable_current_track_display": True
     },
+    "services": {
+        "wyze": {
+            "enabled": False,
+            "webhook_token": ""
+        },
+        "xbox": {
+            "enabled": False,
+            "client_id": "",
+            "client_secret": "",
+            "refresh_token": "",
+            "poll_interval": 60
+            ,"presence_url": ""
+        },
+        "konnected": {
+            "enabled": False,
+            "webhook_token": ""
+        }
+    },
+    "ui": {
     "overlay": {
         "enabled": False,
         "token": "",
-        "port": 5000
+        "port": 5000,
+        "events": {
+            "scrobble": True,
+            "track_change": True,
+            "cover_fallback": False
+            ,"device_notify": True
+        }
     },
+    # Control showing the Pi's IP on main screen
+    "display_ip_on_main": True,
     "wifi": {
         "ap_ssid": "Neonwifi-Manager",
         "ap_ip": "192.168.42.1",
@@ -125,6 +158,38 @@ session.mount('https://', adapter)
 # DB connection + lock
 _db_conn = None
 _db_lock = threading.Lock()
+
+def init_notifications_db():
+    global _db_conn
+    if _db_conn is None:
+        _db_conn = sqlite3.connect('neon_notifications.db', check_same_thread=False)
+    conn = _db_conn
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_ts INTEGER,
+            source TEXT,
+            type TEXT,
+            payload TEXT
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_notifications_ts ON notifications(created_ts)')
+    conn.commit()
+    return conn
+
+
+def store_notification(ev):
+    try:
+        conn = init_notifications_db()
+        with _db_lock:
+            cursor = conn.cursor()
+            payload_json = json.dumps(ev.get('payload', {}))
+            cursor.execute('INSERT INTO notifications (created_ts, source, type, payload) VALUES (?,?,?,?)', (int(ev.get('timestamp', int(time.time()))), ev.get('source', ''), ev.get('type', ''), payload_json))
+            conn.commit()
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Failed to store notification: {e}")
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
@@ -305,6 +370,32 @@ def get_spotify_client():
                 return None, f"Token refresh failed: {str(e)}"
         sp = spotipy.Spotify(auth=token_info['access_token'])
         return sp, "Success"
+
+
+    def get_overlay_token_from_config(cfg=None):
+        """Return decrypted overlay token if config uses encryption, otherwise return plain token."""
+        try:
+            if cfg is None:
+                cfg = load_config()
+            overlay_cfg = cfg.get('overlay', {})
+            if overlay_cfg.get('encrypted') and overlay_cfg.get('encrypted_token'):
+                enc = overlay_cfg.get('encrypted_token')
+                if not HAS_CRYPTO:
+                    return None
+                key_path = os.path.join('secrets', 'overlay_key.key')
+                if not os.path.exists(key_path):
+                    return None
+                with open(key_path, 'rb') as kf:
+                    k = kf.read()
+                f = Fernet(k)
+                try:
+                    token = f.decrypt(enc.encode('utf-8')).decode('utf-8')
+                    return token
+                except Exception:
+                    return None
+            return overlay_cfg.get('token')
+        except Exception:
+            return None
     except Exception as e:
         logger = logging.getLogger('Launcher')
         logger.error(f"Error creating Spotify client: {e}")
@@ -1258,6 +1349,83 @@ def advanced_config():
         )
 
 
+    @app.route('/regenerate_overlay_token', methods=['POST'])
+    def regenerate_overlay_token():
+        """Generate or rotate shared overlay token.
+        Returns JSON with new token or error.
+        """
+        try:
+            cfg = load_config()
+            if 'overlay' not in cfg:
+                cfg['overlay'] = {}
+            import secrets
+            new_token = secrets.token_hex(16)
+            # If overlay token encryption is enabled, encrypt it and store 'encrypted_token' instead
+            encrypt_tokens = cfg.get('overlay', {}).get('encrypted', False)
+            if encrypt_tokens and HAS_CRYPTO:
+                key_path = os.path.join('secrets', 'overlay_key.key')
+                os.makedirs('secrets', exist_ok=True)
+                if not os.path.exists(key_path):
+                    k = Fernet.generate_key()
+                    with open(key_path, 'wb') as kf:
+                        kf.write(k)
+                    os.chmod(key_path, 0o600)
+                else:
+                    with open(key_path, 'rb') as kf:
+                        k = kf.read()
+                f = Fernet(k)
+                enc = f.encrypt(new_token.encode('utf-8'))
+                cfg['overlay']['encrypted_token'] = enc.decode('utf-8')
+                # keep token blank to avoid accidental exposure
+                cfg['overlay']['token'] = ''
+            else:
+                cfg['overlay']['token'] = new_token
+            # Persist
+            save_config(cfg)
+            return {'token': new_token}, 200
+        except Exception as e:
+            logger = logging.getLogger('Launcher')
+            logger.error(f"Failed to regenerate overlay token: {e}")
+            return {'error': 'failed'}, 500
+
+
+    @app.route('/rotate_overlay_key', methods=['POST'])
+    def rotate_overlay_key():
+        """Rotate the overlay encryption key and re-encrypt stored overlay token.
+        This will generate a new key file and re-encrypt the token into `overlay.encrypted_token`.
+        Returns the new token plaintext in response if available.
+        """
+        try:
+            cfg = load_config()
+            overlay_cfg = cfg.get('overlay', {})
+            # get plain token (if encrypted, decrypt)
+            token_plain = get_overlay_token_from_config(cfg)
+            if not token_plain:
+                # if no token is set, regenerate one
+                import secrets
+                token_plain = secrets.token_hex(16)
+            if not HAS_CRYPTO:
+                return {'error': 'cryptography not installed'}, 500
+            key_path = os.path.join('secrets', 'overlay_key.key')
+            os.makedirs('secrets', exist_ok=True)
+            new_k = Fernet.generate_key()
+            with open(key_path, 'wb') as kf:
+                kf.write(new_k)
+            os.chmod(key_path, 0o600)
+            f = Fernet(new_k)
+            enc = f.encrypt(token_plain.encode('utf-8'))
+            overlay_cfg['encrypted_token'] = enc.decode('utf-8')
+            overlay_cfg['token'] = ''
+            overlay_cfg['encrypted'] = True
+            cfg['overlay'] = overlay_cfg
+            save_config(cfg)
+            return {'token': token_plain}, 200
+        except Exception as e:
+            logger = logging.getLogger('Launcher')
+            logger.error(f"Failed to rotate overlay key: {e}")
+            return {'error': 'failed'}, 500
+
+
     @app.route('/events', methods=['POST'])
     def ingest_event():
         """Endpoint for HUD (local) to POST events for streaming to overlay clients."""
@@ -1269,7 +1437,7 @@ def advanced_config():
             return 'Overlay disabled', 403
         # overlay enabled, require token
         if overlay_cfg.get('enabled', False):
-            expected_token = overlay_cfg.get('token', '') or None
+            expected_token = get_overlay_token_from_config(cfg_local)
             if not expected_token:
                 # overlay enabled but no token configured; reject
                 return 'Overlay not configured (no token)', 403
@@ -1278,6 +1446,12 @@ def advanced_config():
                 logger = logging.getLogger('Launcher')
                 logger.warning('Overlay event rejected: invalid token')
                 return 'Invalid token', 403
+            # Require local requests (loopback)
+            ip = request.remote_addr
+            if ip not in ('127.0.0.1', '::1'):
+                logger = logging.getLogger('Launcher')
+                logger.warning(f'Overlay event rejected: non-local IP {ip}')
+                return 'Invalid source', 403
         try:
             data = request.get_json(force=True)
             if not data or 'type' not in data:
@@ -1287,12 +1461,40 @@ def advanced_config():
                 'timestamp': int(time.time()),
                 'payload': data
             }
+            # normalize common sources
+            src = data.get('source') or data.get('service') or data.get('source_name')
+            if src:
+                ev['source'] = src
+            # also store in notifications area for HUD to retrieve
+            try:
+                if 'notifications' not in globals():
+                    globals()['notifications'] = []
+                notifications = globals().get('notifications')
+                notifications.append(ev)
+                # cap 20 entries
+                if len(notifications) > 20:
+                    globals()['notifications'] = notifications[-20:]
+            except Exception:
+                pass
             with event_condition:
                 recent_events.append(ev)
                 # cap events
                 if len(recent_events) > 30:
                     recent_events = recent_events[-30:]
                 event_condition.notify_all()
+            # log notification for HUD and store in notifications as well
+            try:
+                notifications = globals().get('notifications', [])
+                notifications.append(ev)
+                if len(notifications) > 30:
+                    globals()['notifications'] = notifications[-30:]
+            except Exception:
+                pass
+            # persist notifications
+            try:
+                store_notification(ev)
+            except Exception:
+                pass
             return 'ok', 200
         except Exception as e:
             logger = logging.getLogger('Launcher')
@@ -1316,6 +1518,383 @@ def advanced_config():
     @app.route('/event_stream')
     def event_stream():
         return Response(event_stream_generator(), mimetype='text/event-stream')
+
+
+    @app.route('/notifications')
+    def list_notifications():
+        """Return a JSON list of recent notifications for HUD to fetch."""
+        try:
+            conn = init_notifications_db()
+            with _db_lock:
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, created_ts, source, type, payload FROM notifications ORDER BY created_ts DESC LIMIT 50')
+                rows = cursor.fetchall()
+            notifs = []
+            for r in rows:
+                try:
+                    payload = json.loads(r[4]) if r[4] else {}
+                except Exception:
+                    payload = {}
+                notifs.append({'id': r[0], 'timestamp': r[1], 'source': r[2], 'type': r[3], 'payload': payload})
+            return {'notifications': notifs}
+        except Exception:
+            return {'notifications': []}
+
+
+    @app.route('/notifications/clear', methods=['POST'])
+    def clear_notifications():
+        try:
+            conn = init_notifications_db()
+            with _db_lock:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM notifications')
+                conn.commit()
+            globals()['notifications'] = []
+            return {'success': True, 'message': 'Notifications cleared'}
+        except Exception as e:
+            logger = logging.getLogger('Launcher')
+            logger.error(f"Failed to clear notifications: {e}")
+            return {'success': False, 'error': str(e)}, 500
+
+
+    @app.route('/notifications/<int:notif_id>', methods=['DELETE'])
+    def delete_notification(notif_id):
+        try:
+            conn = init_notifications_db()
+            with _db_lock:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM notifications WHERE id = ?', (notif_id,))
+                conn.commit()
+            return {'success': True}
+        except Exception as e:
+            logger = logging.getLogger('Launcher')
+            logger.error(f"Failed to delete notification {notif_id}: {e}")
+            return {'success': False, 'error': str(e)}, 500
+
+
+    @app.route('/notifications/ui')
+    def notifications_ui():
+        try:
+            conn = init_notifications_db()
+            with _db_lock:
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, created_ts, source, type, payload FROM notifications ORDER BY created_ts DESC LIMIT 200')
+                rows = cursor.fetchall()
+            items = []
+            for r in rows:
+                try:
+                    payload = json.loads(r[4]) if r[4] else {}
+                except Exception:
+                    payload = {}
+                items.append({'id': r[0], 'timestamp': r[1], 'source': r[2], 'type': r[3], 'payload': payload})
+            ui_config = load_config().get('ui', {'theme': 'dark'})
+            return render_template('notifications.html', notifications=items, ui_config=ui_config)
+        except Exception as e:
+            logger = logging.getLogger('Launcher')
+            logger.error(f"Failed to render notifications UI: {e}")
+            return render_template('notifications.html', notifications=[], ui_config={'theme': 'dark'})
+
+
+def xbox_polling_loop():
+    logger = logging.getLogger('Launcher')
+    last_presence = None
+    while True:
+        try:
+            cfg = load_config()
+            xbox_cfg = cfg.get('services', {}).get('xbox', {})
+            if not xbox_cfg.get('enabled', False):
+                time.sleep(5)
+                continue
+            presence_url = xbox_cfg.get('presence_url')
+            # If access token is present, prefer Microsoft Graph API instead of a presence URL
+            access_token = xbox_cfg.get('access_token')
+            refresh_token = xbox_cfg.get('refresh_token')
+            interval = int(xbox_cfg.get('poll_interval', 60))
+            if access_token:
+                # Ensure we have a valid token - refresh if needed
+                try:
+                    token_expires_at = int(xbox_cfg.get('token_expires_at', 0))
+                    now_ts = int(time.time())
+                    if token_expires_at and now_ts + 30 >= token_expires_at:
+                        # refresh
+                        refreshed = refresh_xbox_token(xbox_cfg)
+                        if refreshed:
+                            xbox_cfg = load_config().get('services', {}).get('xbox', {})
+                    headers = {'Authorization': f"Bearer {xbox_cfg.get('access_token')}"}
+                    resp = session.get('https://graph.microsoft.com/v1.0/me/presence', headers=headers, timeout=10)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    presence = data.get('availability') or data.get('activity') or data
+                    if presence and presence != last_presence:
+                        ev = {'type': 'xbox_presence', 'timestamp': int(time.time()), 'payload': data, 'source': 'xbox'}
+                        with event_condition:
+                            recent_events.append(ev)
+                            if len(recent_events) > 30:
+                                recent_events = recent_events[-30:]
+                            event_condition.notify_all()
+                        notifs = globals().get('notifications', [])
+                        notifs.append(ev)
+                        globals()['notifications'] = notifs[-30:]
+                        last_presence = presence
+                except Exception as e:
+                    logger.debug(f"Xbox Graph poll error: {e}")
+            elif presence_url:
+                try:
+                    resp = session.get(presence_url, timeout=10)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    presence = data.get('presence') or data.get('state') or data
+                    if presence and presence != last_presence:
+                        ev = {'type': 'xbox_presence', 'timestamp': int(time.time()), 'payload': data, 'source': 'xbox'}
+                        with event_condition:
+                            recent_events.append(ev)
+                            if len(recent_events) > 30:
+                                recent_events = recent_events[-30:]
+                            event_condition.notify_all()
+                        notifs = globals().get('notifications', [])
+                        notifs.append(ev)
+                        globals()['notifications'] = notifs[-30:]
+                        last_presence = presence
+                except Exception as e:
+                    logger.debug(f"Xbox poll error: {e}")
+            time.sleep(interval)
+        except Exception as e:
+            logger.error(f"Xbox polling thread error: {e}")
+            time.sleep(10)
+
+
+def xbox_get_authorize_url():
+    cfg = load_config()
+    xbox_cfg = cfg.get('services', {}).get('xbox', {})
+    client_id = xbox_cfg.get('client_id')
+    redirect_uri = cfg.get('api_keys', {}).get('redirect_uri', 'http://127.0.0.1:5000')
+    if not client_id:
+        return None
+    # Microsoft OAuth v2 endpoint
+    scope = 'offline_access User.Read presence.Read'
+    params = {
+        'client_id': client_id,
+        'response_type': 'code',
+        'redirect_uri': redirect_uri,
+        'response_mode': 'query',
+        'scope': scope,
+    }
+    url = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' + urllib.parse.urlencode(params)
+    return url
+
+
+def exchange_xbox_code_for_tokens(code):
+    cfg = load_config()
+    xbox_cfg = cfg.get('services', {}).get('xbox', {})
+    client_id = xbox_cfg.get('client_id')
+    client_secret = xbox_cfg.get('client_secret')
+    redirect_uri = cfg.get('api_keys', {}).get('redirect_uri', 'http://127.0.0.1:5000')
+    if not (client_id and client_secret and code):
+        return None
+    token_url = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+    data = {
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'code': code,
+        'redirect_uri': redirect_uri,
+        'grant_type': 'authorization_code'
+    }
+    try:
+        resp = session.post(token_url, data=data, timeout=10)
+        resp.raise_for_status()
+        token_data = resp.json()
+        # token_data includes access_token, refresh_token, expires_in
+        return token_data
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Xbox token exchange failed: {e}")
+        return None
+
+
+def refresh_xbox_token(xbox_cfg):
+    try:
+        client_id = xbox_cfg.get('client_id')
+        client_secret = xbox_cfg.get('client_secret')
+        refresh_token = xbox_cfg.get('refresh_token')
+        if not (client_id and client_secret and refresh_token):
+            return False
+        token_url = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+        data = {
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'refresh_token': refresh_token,
+            'grant_type': 'refresh_token'
+        }
+        resp = session.post(token_url, data=data, timeout=10)
+        resp.raise_for_status()
+        token_data = resp.json()
+        cfg = load_config()
+        if 'services' not in cfg:
+            cfg['services'] = {}
+        if 'xbox' not in cfg['services']:
+            cfg['services']['xbox'] = {}
+        cfg['services']['xbox']['access_token'] = token_data.get('access_token')
+        cfg['services']['xbox']['refresh_token'] = token_data.get('refresh_token', refresh_token)
+        expires = int(time.time()) + int(token_data.get('expires_in', 3600))
+        cfg['services']['xbox']['token_expires_at'] = expires
+        save_config(cfg)
+        return True
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Xbox token refresh failed: {e}")
+        return False
+
+
+@app.route('/xbox_connect')
+def xbox_connect():
+    url = xbox_get_authorize_url()
+    if not url:
+        flash('error', 'Xbox client ID is not configured. Please set it in Advanced Configuration')
+        return redirect(url_for('advanced_config'))
+    return redirect(url)
+
+
+@app.route('/xbox_callback')
+def xbox_callback():
+    try:
+        code = request.args.get('code')
+        error = request.args.get('error')
+        if error:
+            flash('error', f'Xbox auth failed: {error}')
+            return redirect(url_for('advanced_config'))
+        if not code:
+            flash('error', 'No authorization code provided')
+            return redirect(url_for('advanced_config'))
+        token_data = exchange_xbox_code_for_tokens(code)
+        if not token_data:
+            flash('error', 'Token exchange failed')
+            return redirect(url_for('advanced_config'))
+        cfg = load_config()
+        if 'services' not in cfg:
+            cfg['services'] = {}
+        if 'xbox' not in cfg['services']:
+            cfg['services']['xbox'] = {}
+        cfg['services']['xbox']['access_token'] = token_data.get('access_token')
+        cfg['services']['xbox']['refresh_token'] = token_data.get('refresh_token')
+        cfg['services']['xbox']['token_expires_at'] = int(time.time()) + int(token_data.get('expires_in', 3600))
+        cfg['services']['xbox']['enabled'] = True
+        save_config(cfg)
+        flash('success', 'Xbox successfully connected and tokens saved')
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Xbox callback error: {e}")
+        flash('error', 'Xbox callback handling failed')
+    return redirect(url_for('advanced_config'))
+
+
+
+    @app.route('/device_notify', methods=['POST'])
+    def device_notify():
+        """A dedicated endpoint for Wyze, Konnected, Xbox (or other) webhooks.
+        The payload should contain a `source` or `service` field identifying the origin.
+        Token checking and local-only checks apply similar to `/events`.
+        """
+        cfg = load_config()
+        services_cfg = cfg.get('services', {})
+        # check header token if provided for any service-specific webhook
+        try:
+            data = request.get_json(force=True)
+        except Exception:
+            return 'Invalid JSON', 400
+        source = (data.get('source') or data.get('service') or data.get('source_name') or '').lower()
+        # map source to service configs
+        service_cfg = services_cfg.get(source, {}) if source else None
+        if service_cfg:
+            expected_token = service_cfg.get('webhook_token')
+            if service_cfg.get('enabled', False):
+                if expected_token:
+                    header_token = request.headers.get('X-Webhook-Token')
+                    if header_token != expected_token:
+                        return 'Invalid token', 403
+                # accept event and forward to event stream and notifications
+                # Wyze-specific handling: optional snapshot url
+                if source == 'wyze':
+                    snapshot_url = data.get('snapshot_url') or data.get('snapshot') or data.get('image_url')
+                    if snapshot_url:
+                        try:
+                            # try to fetch and save
+                            headers = {'User-Agent': 'NeonDisplay/1.0'}
+                            resp = session.get(snapshot_url, headers=headers, timeout=10)
+                            resp.raise_for_status()
+                            os.makedirs('static', exist_ok=True)
+                            with open('static/wyze_last.jpg', 'wb') as f:
+                                f.write(resp.content)
+                            ev['snapshot'] = '/static/wyze_last.jpg'
+                            # Attach image URL so overlay may show thumbnails
+                        except Exception as e:
+                            logger = logging.getLogger('Launcher')
+                            logger.warning(f"Wyze snapshot fetch failed: {e}")
+        else:
+            # fallback to overlay token if configured
+            overlay_cfg = cfg.get('overlay', {})
+            if overlay_cfg.get('enabled'):
+                expected_token = get_overlay_token_from_config(cfg)
+                header_token = request.headers.get('X-Overlay-Token')
+                if header_token != expected_token:
+                    return 'Invalid token', 403
+            else:
+                # If no overlay and no service mapping, reject
+                return 'No service configured', 403
+        # now normalize and add to events
+        ev = {'type': 'device_notify', 'timestamp': int(time.time()), 'payload': data}
+        if source:
+            ev['source'] = source
+        # Konnected: parse sensors field into readable message
+        if source == 'konnected':
+            try:
+                device = data.get('device') or data.get('sensor') or data.get('name')
+                state = data.get('state') or data.get('value') or data.get('status')
+                if device and state is not None:
+                    ev['message'] = f"{device}: {state}"
+            except Exception:
+                pass
+        # Xbox: if payload contains presence/achievement, transform to message
+        if source == 'xbox':
+            try:
+                event_type = data.get('event') or data.get('type')
+                if event_type:
+                    if 'achievement' in str(event_type).lower():
+                        ev['message'] = f"Xbox Achievement: {data.get('title', '')}"
+                    elif 'presence' in str(event_type).lower():
+                        # presence payload may have username and state
+                        uname = data.get('user') or data.get('gamer') or data.get('xbox_name')
+                        state = data.get('state') or data.get('presence')
+                        if uname and state:
+                            ev['message'] = f"Xbox {uname}: {state}"
+            except Exception:
+                pass
+        # enqueue and notify
+        with event_condition:
+            # check overlay event type preferences
+            overlay_cfg = cfg.get('overlay', {})
+            overlay_events = overlay_cfg.get('events', {})
+            if overlay_cfg.get('enabled', False) and not overlay_events.get('device_notify', True):
+                # Device notifications disabled; quietly accept but don't post
+                return 'ok', 200
+            recent_events.append(ev)
+            if len(recent_events) > 30:
+                recent_events = recent_events[-30:]
+            event_condition.notify_all()
+        # also store in notifications
+        try:
+            notifs = globals().get('notifications', [])
+            notifs.append(ev)
+            globals()['notifications'] = notifs[-30:]
+        except Exception:
+            pass
+        # persist notifications
+        try:
+            store_notification(ev)
+        except Exception:
+            pass
+        except Exception:
+            pass
+        return 'ok', 200
 
 
     @app.route('/overlay')
@@ -1365,6 +1944,7 @@ def save_advanced_config():
         config["wifi"]["rescan_time"] = int(request.form.get('rescan_time', 600))
         config["settings"]["progressbar_display"] = 'progressbar_display' in request.form
         config["settings"]["time_display"] = 'time_display' in request.form
+        config["display_ip_on_main"] = 'display_ip_on_main' in request.form
         config["settings"]["start_screen"] = request.form.get('start_screen', 'weather')
         config["settings"]["use_gpsd"] = 'use_gpsd' in request.form
         config["settings"]["use_google_geo"] = 'use_google_geo' in request.form
@@ -1397,7 +1977,78 @@ def save_advanced_config():
         if 'overlay' not in config:
             config['overlay'] = {}
         config['overlay']['enabled'] = 'overlay_enabled' in request.form
-        config['overlay']['token'] = request.form.get('overlay_token', '').strip()
+        # Token encryption toggle
+        config['overlay']['encrypted'] = 'overlay_encrypt' in request.form
+        given_token = request.form.get('overlay_token', '').strip()
+        if given_token:
+            config['overlay']['token'] = given_token
+        else:
+            # Regenerate token if overlay enabled and no token provided
+            if config['overlay'].get('enabled') and not config['overlay'].get('token'):
+                import secrets
+                cfg_token = secrets.token_hex(16)
+                config['overlay']['token'] = cfg_token
+        # If token encryption is enabled, encrypt the token and store 'encrypted_token' instead
+        if config['overlay'].get('encrypted', False) and HAS_CRYPTO:
+            token_to_encrypt = config['overlay'].get('token')
+            if token_to_encrypt:
+                key_path = os.path.join('secrets', 'overlay_key.key')
+                os.makedirs('secrets', exist_ok=True)
+                if not os.path.exists(key_path):
+                    k = Fernet.generate_key()
+                    with open(key_path, 'wb') as kf:
+                        kf.write(k)
+                    os.chmod(key_path, 0o600)
+                else:
+                    with open(key_path, 'rb') as kf:
+                        k = kf.read()
+                f = Fernet(k)
+                enc = f.encrypt(token_to_encrypt.encode('utf-8'))
+                config['overlay']['encrypted_token'] = enc.decode('utf-8')
+                # clear plaintext token to avoid accidental exposure
+                config['overlay']['token'] = ''
+        else:
+            # if encryption disabled but encrypted token present, decrypt to plain token
+            if not config['overlay'].get('encrypted', False) and config['overlay'].get('encrypted_token') and HAS_CRYPTO:
+                try:
+                    key_path = os.path.join('secrets', 'overlay_key.key')
+                    if os.path.exists(key_path):
+                        with open(key_path, 'rb') as kf:
+                            k = kf.read()
+                        f = Fernet(k)
+                        dec = f.decrypt(config['overlay'].get('encrypted_token').encode('utf-8'))
+                        config['overlay']['token'] = dec.decode('utf-8')
+                        config['overlay']['encrypted_token'] = ''
+                except Exception:
+                    pass
+        # overlay event toggles
+        if 'events' not in config['overlay']:
+            config['overlay']['events'] = {}
+        config['overlay']['events']['scrobble'] = 'overlay_event_scrobble' in request.form
+        config['overlay']['events']['track_change'] = 'overlay_event_track_change' in request.form
+        config['overlay']['events']['cover_fallback'] = 'overlay_event_cover_fallback' in request.form
+        config['overlay']['events']['device_notify'] = 'overlay_event_device_notify' in request.form
+        # Services
+        if 'services' not in config:
+            config['services'] = {}
+        if 'wyze' not in config['services']:
+            config['services']['wyze'] = {}
+        config['services']['wyze']['enabled'] = 'wyze_enabled' in request.form
+        config['services']['wyze']['webhook_token'] = request.form.get('wyze_webhook_token', '').strip() or config['services']['wyze'].get('webhook_token', '')
+        if 'xbox' not in config['services']:
+            config['services']['xbox'] = {}
+        config['services']['xbox']['enabled'] = 'xbox_enabled' in request.form
+        config['services']['xbox']['client_id'] = request.form.get('xbox_client_id', '').strip() or config['services']['xbox'].get('client_id', '')
+        config['services']['xbox']['client_secret'] = request.form.get('xbox_client_secret', '').strip() or config['services']['xbox'].get('client_secret', '')
+        try:
+            config['services']['xbox']['poll_interval'] = int(request.form.get('xbox_poll_interval', config['services']['xbox'].get('poll_interval', 60)))
+        except Exception:
+            config['services']['xbox']['poll_interval'] = config['services']['xbox'].get('poll_interval', 60)
+        config['services']['xbox']['presence_url'] = request.form.get('xbox_presence_url', '').strip() or config['services']['xbox'].get('presence_url', '')
+        if 'konnected' not in config['services']:
+            config['services']['konnected'] = {}
+        config['services']['konnected']['enabled'] = 'konnected_enabled' in request.form
+        config['services']['konnected']['webhook_token'] = request.form.get('konnected_webhook_token', '').strip() or config['services']['konnected'].get('webhook_token', '')
         save_config(config)
         flash('success', 'Advanced configuration saved successfully!')
         def restart_process(process_name, stop_func, start_func, check_func):
@@ -1825,6 +2476,10 @@ def main():
         generate_music_stats.db_conn = conn
     except Exception:
         pass
+    try:
+        init_notifications_db()
+    except Exception:
+        pass
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     import logging as pylogging
@@ -1866,10 +2521,23 @@ def main():
     finally:
         cleanup()
 
+def start_background_threads():
+    # start xbox polling
+    try:
+        cfg = load_config()
+        xbox_cfg = cfg.get('services', {}).get('xbox', {})
+        if xbox_cfg.get('enabled', False) and (xbox_cfg.get('presence_url') or xbox_cfg.get('access_token') or xbox_cfg.get('refresh_token')):
+            Thread(target=xbox_polling_loop, daemon=True).start()
+    except Exception:
+        pass
+
 if __name__ == '__main__':
     try:
+        start_background_threads()
         main()
     except KeyboardInterrupt:
         signal_handler(signal.SIGINT, None)
     finally:
         cleanup()
+
+## Entrypoint is handled above; no additional main() call here.

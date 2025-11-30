@@ -29,6 +29,12 @@ try:
     HAS_GPIO = True
 except ImportError:
     HAS_GPIO = False
+try:
+    from cryptography.fernet import Fernet
+    HAS_CRYPTO = True
+except Exception:
+    Fernet = None
+    HAS_CRYPTO = False
 sys.stdout.reconfigure(line_buffering=True)
 
 SCREEN_WIDTH = 480
@@ -198,6 +204,7 @@ display_sleeping = False
 last_saved_album_art_hash = None
 internet_available = True
 last_internet_check = 0
+notifications = []
 
 def load_config(path="config.toml"):
     if not os.path.exists(path):
@@ -589,6 +596,17 @@ def post_overlay_event(event):
         overlay_port = int(overlay_cfg.get('port', 5000))
         overlay_host = overlay_cfg.get('host', '127.0.0.1') if 'host' in overlay_cfg else '127.0.0.1'
         overlay_token = overlay_cfg.get('token', '')
+        # If encryption is enabled, attempt to read encrypted token and key from disk
+        try:
+            if overlay_cfg.get('encrypted', False) and overlay_cfg.get('encrypted_token') and HAS_CRYPTO:
+                key_path = os.path.join('secrets', 'overlay_key.key')
+                if os.path.exists(key_path):
+                    with open(key_path, 'rb') as kf:
+                        k = kf.read()
+                    f = Fernet(k)
+                    overlay_token = f.decrypt(overlay_cfg.get('encrypted_token').encode('utf-8')).decode('utf-8')
+        except Exception:
+            pass
         if not overlay_token:
             return
         url = f'http://{overlay_host}:{overlay_port}/events'
@@ -809,6 +827,20 @@ def compute_img_hash(img):
         return None
 
 
+def get_local_ip():
+    """Return the local IP address of the device (first non-loopback)."""
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Doesn't need to be reachable
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+
 ALBUM_BG_CACHE_MAX = 3
 def get_cached_background(size, album_art_img, album_art_hash=None):
     """Return a cached background for a given album art & size. Uses an LRU OrderedDict.
@@ -1020,6 +1052,26 @@ def background_generation_worker():
                 bg_generation_queue.task_done()
             except Exception:
                 pass
+        # check for new notifications from neondisplay every loop iteration
+        try:
+            # poll notifications regardless of process executor availability
+                # poll local neondisplay for notifications
+                try:
+                    url = 'http://127.0.0.1:5000/notifications'
+                    resp = session.get(url, timeout=0.5)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        notifs = data.get('notifications', [])
+                        if notifs:
+                            # Save into HUD notifications list
+                            try:
+                                globals()['notifications'] = notifs[-20:]
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 def request_background_generation(album_img):
     global current_clock_artwork, current_clock_artwork_hash
@@ -1423,6 +1475,44 @@ def draw_clock_image():
     draw = ImageDraw.Draw(img)
     draw_text_aliased(draw, img, (time_x, time_y), time_str, LARGE_FONT, face_color)
     draw_text_aliased(draw, img, (date_x, date_y), date_str, MEDIUM_FONT, notch_color)
+    # Optionally show the device IP in small font
+    try:
+        cfg = config
+        if cfg.get('display_ip_on_main', False):
+            ip = get_local_ip()
+            small_font = ImageFont.truetype(config['fonts']['small_font_path'], config['fonts']['small_font_size'])
+            ip_bbox = get_cached_text_bbox(ip, small_font)
+            ip_x = 5
+            ip_y = SCREEN_HEIGHT - 20
+            draw_text_aliased(draw, img, (ip_x, ip_y), ip, small_font, (220, 220, 220))
+    except Exception:
+        pass
+    # Show latest notification if available
+    try:
+        notifs = globals().get('notifications', [])
+        if notifs:
+            last_notif = notifs[-1]
+            payload = last_notif.get('payload', {})
+            message = last_notif.get('message') or payload.get('message') or payload.get('event') or payload.get('state') or payload.get('title') or str(payload.get('message', ''))
+            if message:
+                notif_text = f"{last_notif.get('source', '')}: {message}" if last_notif.get('source') else message
+                notif_font = ImageFont.truetype(config['fonts']['small_font_path'], max(12, int(config['fonts']['small_font_size']*0.9)))
+                notif_bbox = get_cached_text_bbox(notif_text, notif_font)
+                notif_width = notif_bbox[2] - notif_bbox[0]
+                notif_x = SCREEN_WIDTH - notif_width - 8
+                notif_y = 8
+                draw_text_aliased(draw, img, (notif_x, notif_y), notif_text, notif_font, (255, 255, 255))
+    except Exception:
+        pass
+    # Show a small Wyze snapshot if available
+    try:
+        wyze_path = os.path.join('static', 'wyze_last.jpg')
+        if os.path.exists(wyze_path):
+            wyze_img = Image.open(wyze_path).convert('RGB')
+            wyze_thumb = get_cached_resized_image(wyze_img, (60, 60), 'RGB')
+            img.paste(wyze_thumb, (SCREEN_WIDTH - 70, SCREEN_HEIGHT - 70))
+    except Exception:
+        pass
     return img
 
 def setup_spotify_oauth():

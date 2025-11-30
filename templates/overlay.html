@@ -56,7 +56,14 @@
                     text = `Fallback art used: ${payload.artist || ''} - ${payload.album || ''}`;
                     overlay.innerHTML = `<div class='event type-cover_fallback'>${text}</div>`;
                 } else {
-                    overlay.innerHTML = `<div class='event'>${JSON.stringify(payload)}</div>`;
+                    // show device notifications: if payload has snapshot, show it
+                    if (payload && payload.snapshot) {
+                        overlay.innerHTML = `<div class='event'><img src='${payload.snapshot}' style='max-width:400px;max-height:200px;' /><div>${JSON.stringify(payload)}</div></div>`;
+                    } else if (payload && payload.message) {
+                        overlay.innerHTML = `<div class='event'>${payload.message}</div>`;
+                    } else {
+                        overlay.innerHTML = `<div class='event'>${JSON.stringify(payload)}</div>`;
+                    }
                 }
                 // auto-clear
                 setTimeout(() => { overlay.innerHTML = ''; }, 8000);
