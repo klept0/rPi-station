@@ -65,7 +65,7 @@ DEFAULT_CONFIG = {
             "dc_pin": 9,
             "backlight_pin": 13,
             "rotation": 0,
-            "spi_speed": 60000000
+            "spi_speed": 32000000
         }
     },
     "fonts": {
@@ -108,7 +108,8 @@ DEFAULT_CONFIG = {
         "time_display": True,
         "sleep_timeout": 300,
         "progressbar_display": True,
-        "enable_current_track_display": True
+        "enable_current_track_display": True,
+        "max_fps": 25
     },
     "wifi": {
         "ap_ssid": "Neonwifi-Manager",
@@ -325,7 +326,8 @@ LASTFM_SCROBBLE_THRESHOLD = float(config.get('lastfm', {}).get('scrobble_thresho
 LASTFM_MIN_SECONDS = int(config.get('lastfm', {}).get('min_scrobble_seconds', 30))
 OVERLAY_ENABLED = config.get('overlay', {}).get('enabled', False)
 OVERLAY_TOKEN = config.get('overlay', {}).get('token', '')
-MIN_DISPLAY_INTERVAL = 0.001
+MAX_FPS = int(config.get('settings', {}).get('max_fps', 25) or 25)
+MIN_DISPLAY_INTERVAL = 1.0 / max(1, MAX_FPS)
 DEBOUNCE_TIME = 0.3
 UPDATE_INTERVAL_WEATHER = 3600
 WAKEUP_CHECK_INTERVAL = 10
@@ -1860,7 +1862,7 @@ def init_st7789_display():
             width=320,
             height=240,
             rotation=config_rotation,
-            spi_speed_hz=st7789_config.get("spi_speed", 60000000)
+            spi_speed_hz=st7789_config.get("spi_speed", 32000000)
         )
         print(f"ST7789 display initialized with rotation: {config_rotation}°")
         return st7789_display

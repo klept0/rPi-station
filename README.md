@@ -1,545 +1,191 @@
 # rPi-station
 
-A Raspberry Pi-based media and status display with a Flask web UI, Spotify/Last.fm integration, live overlay events via SSE, device webhooks (Wyze, Konnected, Xbox), notifications, and secure token handling. Supports small TFT/e-paper displays or framebuffer, with an optional HUD streaming now playing and events.
+Raspberry Pi-based media & status display with a Flask web UI, Spotify + Last.fm integration, secure overlay events (SSE), device/web service webhooks (Wyze, Konnected, Xbox), notifications, and small display support (Framebuffer TFT, ST7789, Waveshare e-paper). Includes performance-focused HUD with caching, process/thread offloading, and token / HMAC protection.
 
-## 🌟 Features
+## 🚀 Highlights
 
-### Display Modes
+- Multi-screen HUD: Weather, Spotify Now Playing, Clock (album / weather / solid backgrounds), E-Paper optimized layout
+- Live Overlay: Server-Sent Events stream (`/event_stream`) fed by authenticated `/events` posts
+- Notifications: Persisted (SQLite) + UI management (`/notifications/ui`)
+- Spotify + Last.fm: Playback state, scrobbling, MusicBrainz cover fallback
+- Xbox Presence: Optional Microsoft Graph OAuth-based polling
+- Security: Token auth, optional HMAC validation, key rotation & token encryption (Fernet)
+- Performance: Reduced SPI speed default (32MHz), frame throttle (`max_fps`), fbcp-ili9341 DMA driver target, LRU image caches, background generation in process pool
 
-- Weather: current conditions + forecast
-- Spotify: now playing with progress
-- Clock: digital/analog, configurable backgrounds
-- Waveshare e-paper: combined layout
+## 🖥️ Display & Performance Features
 
-### Music Integration
+| Feature | Purpose | Config / Command |
+|---------|---------|------------------|
+| Lower SPI speed (32MHz) | Reduce tearing on ST7789 | `display.st7789.spi_speed` in `config.toml` |
+| Frame throttle | Caps draw rate | `settings.max_fps` (default 25) |
+| fbcp-ili9341 DMA | Hardware-accelerated buffer copy | `make setup-fbcp` (creates service) |
+| MD5 frame dedup | Skip identical redraws | Automatic in HUD code |
+| ProcessPoolExecutor | Heavy image ops off main thread | Auto init based on CPU |
+| LRU caches | Avoid reprocessing album art | Internal (album bg, resize, dither) |
 
-- Spotify control: play, pause, skip, volume
-- Music statistics: play counts and artist stats
-- Search & queue: search Spotify and manage queue
-- Current track display: real-time now playing info
-
-### Web Interface
-
-- Responsive UI (desktop/mobile)
-- Theme toggle (dark/light)
-- Live updates (SSE)
-- Advanced Config to manage all settings
-
-### Hardware Support
-
-- Supported displays:
-  - Framebuffer (TFT 3.5")
-  - ST7789 (Display Hat Mini)
-  - Waveshare E-Paper
-- GPIO buttons: configurable for ST7789
-- Touch: 3.5" TFT touch support
-- GPSD integration (optional)
-
-## 📦 Installation
-
-### Quick Start (Local Dev)
+## 📦 Installation (Raspberry Pi)
 
 ```bash
-cd /path/to/rPi-station
+git clone https://github.com/klept0/rPi-station.git
+cd rPi-station
+sudo make system-deps        # Packages + uv
+make python-packages         # Virtualenv & Python deps
+make config                  # Guided configuration
+sudo make setup-display      # ⚠️ Installs LCD drivers & reboots
+# (after reboot)
+sudo make setup-service      # Systemd service
+make sync-code               # Sync source after changes
+```
+
+Optional (DMA fbcp driver for some SPI TFTs):
+
+```bash
+sudo make setup-fbcp
+```
+
+### Local Development (macOS / Linux Desktop)
+
+```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt  # if present; else install needed libs
 python neondisplay.py
 ```
 
-Open the Web UI shown in logs (e.g., `http://127.0.0.1:5000`).
+Open `http://127.0.0.1:5000`.
 
-### Raspberry Pi Setup (Step-by-Step)
+## 🔧 Make Targets (Core)
 
-1. System Dependencies
+| Target | Description |
+|--------|-------------|
+| `system-deps` | Install OS packages + uv |
+| `python-packages` | Create venv & install Python deps |
+| `setup-display` | Install vendor LCD drivers (reboots) |
+| `setup-fbcp` | Build & enable fbcp-ili9341 service |
+| `setup-service` | Create & enable systemd service |
+| `sync-code` | rsync source → `/opt/neondisplay` & restart |
+| `config` | Full interactive configuration walkthrough |
+| `update-packages` | Upgrade Python dependencies |
+| `start` / `stop` / `status` / `logs` | Manage systemd service |
 
-   ```bash
-   make system-deps
-   ```
+Configuration subtasks: `config-api`, `config-display`, `config-fonts`, `config-buttons`, `config-wifi`, `config-settings`.
 
-2. Python Environment & Packages
+## ⚙️ Configuration Overview
 
-   ```bash
-   make python-packages
-   ```
+Primary file: `config.toml` (auto-created). Change via Advanced Config web page or make targets.
 
-3. Display Setup (⚠️ will reboot)
+Key Sections:
 
-   ```bash
-   make setup-display
-   ```
+- `display`: Type (`framebuffer`, `st7789`, `waveshare_epd`, `dummy`), rotation, ST7789 pins & `spi_speed`
+- `settings`: Start screen, GPSD, Google Geo, `max_fps`, sleep timeout
+- `overlay`: Enabled, token / encrypted_token, key source (`file` or env)
+- `lastfm`: API credentials, `enabled`, scrobble threshold, minimum seconds
+- `buttons`, `fonts`, `wifi`, `clock`, `ui`
 
-4. System Service Setup
+## 🔐 Security
 
-   ```bash
-   make setup-service
-   ```
+| Mechanism | Endpoints / Use |
+|-----------|-----------------|
+| Overlay token (`X-Overlay-Token`) | `/events` authenticated event ingress |
+| HMAC (sha256) optional | Overlay & webhook posts (configured secrets) |
+| Token encryption (Fernet) | Stores `encrypted_token` + key rotation support |
+| Rate limiting | Applied to `/events`, `/device_notify` to mitigate spam |
 
-5. Configuration
+Token Encryption Steps:
 
-   ```bash
-   make config
-   ```
+1. Enable encryption in Advanced Config.
+2. Choose key source (`file` auto-generates `secrets/overlay_key.key`, or environment variable).
+3. Regenerate token → encrypted form saved; plaintext shown once.
+4. Rotate key with `/rotate_overlay_key` UI action (re-encrypts existing token).
 
-## ⚙️ Configuration
+## 📡 Overlay & Events
 
-Use the Advanced Config page to set:
+- Stream consumer: `/event_stream` (SSE)
+- Producer: POST `/events` with JSON body + header `X-Overlay-Token` (and HMAC if enabled)
+- Device/webhook aggregator: `/device_notify` (multi-source normalized events)
+- Key management actions: `/regenerate_overlay_token`, `/rotate_overlay_key`
 
--
-- API keys: OpenWeather, Spotify client id/secret, optional Google Geocoding
-- Last.fm: enable + scrobble thresholds
-- Display: framebuffer/ST7789, rotation, pins, fonts
-- Overlay: token, encryption, event types
-- Services: Wyze/Konnected webhooks and Xbox polling
+## 🔔 Notifications
 
-CLI helpers via `make` targets are available (optional):
+- Data: SQLite DB `neon_notifications.db`
+- Endpoints: `/notifications`, `/notifications/filters`, `/notifications/clear`, DELETE `/notifications/<id>`
+- UI: `/notifications/ui` (latest entries + filters)
+- HUD: Latest notification rendered on clock screen
 
--
-- `make config-api`, `make config-display`, `make config-fonts`, `make config-buttons`, `make config-wifi`, `make config-settings`
+## 🎵 Spotify & Last.fm
 
-## 🚀 Usage
+Setup:
 
-### Start/Status/Logs
+1. Spotify developer app → add redirect `http://127.0.0.1:5000`
+2. Enter client id/secret in Advanced Config
+3. Authenticate in UI (or interactive prompt if running headless)
+4. Optional Last.fm: supply API key/secret + username/password → scrobble after threshold
+
+Music Stats: `/music_stats` (top tracks/artists, counters)
+
+Fallback art: MusicBrainz / Cover Art Archive attempted when Spotify image missing.
+
+## 🎮 Xbox Presence
+
+1. Register Microsoft app (scopes: `offline_access`, `User.Read`, `Presence.Read`)
+2. Configure client id/secret in Services → Xbox panel
+3. Launch connect flow → tokens saved in config
+4. Presence updates appear in notifications & overlay (if enabled)
+
+## ⚡ Performance Internals
+
+- ThreadPoolExecutor (network / I/O), ProcessPoolExecutor (image transforms)
+- LRU caches (album bg, resized images, dithered conversion)
+- MD5 hashing for frame dedup (skip identical draws)
+- Adaptive FPS: CPU load monitor adjusts animation/text scroll FPS
+- Frame throttle: `max_fps` prevents excessive SPI writes
+
+## 🧪 Testing & CI
+
+GitHub Actions workflow `.github/workflows/ci.yml` runs `pytest` on pushes & PRs.
+
+If no tests exist yet, add one:
 
 ```bash
-make start
-make status
-make logs
-```
-
-### Web UI
-
-```
-http://[raspberry-pi-ip]:5000
-```
-
-## 🧪 Running Tests
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+mkdir -p tests
+echo 'def test_placeholder():\n    assert 2 + 2 == 4' > tests/test_smoke.py
 pytest -q
 ```
 
-See `TESTING.md` for E2E scenarios.
+## 🛠️ Maintenance & Operations
 
-## 🎵 Spotify Integration
-
-1. Create a Spotify Developer application
-2. Set redirect URI to `http://127.0.0.1:5000`
-3. Enter Client ID and Secret in Advanced Config
-4. Authenticate through the web interface
-
-## 📊 Music Statistics
-
-```
-http://[raspberry-pi-ip]:5000/music_stats
+```bash
+make update-packages   # Upgrade deps
+make view-config       # Show current config
+make reset-config      # Restore defaults
+make clean             # Remove service + files
 ```
 
-- Most played songs and artists
-- Total play counts
-- Interactive bar charts
+## 🐛 Troubleshooting Quick Reference
 
-## 🔧 Advanced Features
+| Symptom | Checks | Fix |
+|---------|--------|-----|
+| Display tearing (ST7789) | Verify `spi_speed` & `max_fps` | Lower `spi_speed` (32M) / reduce `max_fps` / install fbcp |
+| No HUD updates | Service status | `make status` / check logs |
+| Spotify auth fails | Redirect mismatch | Ensure URI matches developer dashboard |
+| GPS unavailable | gpsd running? | Disable GPSD or set fallback city |
+| Overlay rejected | Token/HMAC mismatch | Re-check header & secret, rotate token |
 
-- Display types: Framebuffer, ST7789, Waveshare e-paper, Dummy
-- Location: GPSD + Google Geolocation, fallback city
-- Fonts/buttons/wifi: configurable via Advanced Config
+Logs & status:
 
-## 🛠️ Maintenance
-
-- Update packages: `make update-packages`
-- View config: `make view-config`
-- Reset config: `make reset-config`
-- Cleanup: `make clean`
-
-## 🐛 Troubleshooting
-
-- evdev on macOS: skip for local dev; it’s Linux-only
-- Encryption: install `cryptography` for token encryption
-- Homebrew Python: use a venv for installing packages
-- HMAC: verify signature matches raw body and header format
-
-## 🔐 Security & Overlay
-
-- Rate limiting on `/events` and `/device_notify`
-- HMAC (sha256) validation support:
-  - Overlay: enable `overlay_hmac_enabled` + set `overlay_hmac_secret`
-  - Wyze/Konnected: `webhook_hmac_enabled` + `webhook_hmac_secret`
-  - Xbox webhook proxy: optional HMAC
-- Overlay token encryption (Fernet):
-  - Key source `file` creates `secrets/overlay_key.key`
-  - Key source `env` reads `OVERLAY_SECRET_KEY` (configurable)
-  - Regenerate: `POST /regenerate_overlay_token`
-  - Rotate key: `POST /rotate_overlay_key`
-- Overlay posts use header `X-Overlay-Token` on `/events`
-
-## 🔔 Notifications UI
-
-- JSON: `/notifications` (paging + filters)
-- Filters: `/notifications/filters`
-- Clear: `/notifications/clear` (POST)
-- Delete single: `/notifications/<id>` (DELETE)
-- UI: `/notifications/ui`
-- Storage: SQLite (`neon_notifications.db`)
-
-## 🎮 Xbox Integration
-
-- Client id/secret in Services → Xbox
-- Presence via Microsoft Graph (with token) or proxy URL
-- UI shows status and allows disconnect
-- Multi-account viewer planned
-
-## 📡 SSE Overlay
-
-- Stream: `/event_stream`
-- HUD/services post to `/events` with token/HMAC validation
-
-## 🤖 CI: GitHub Actions
-
-Workflow at `.github/workflows/ci.yml` runs pytest on push/PR to `main`/`master`.
+```bash
+make logs    # journalctl -f
+make tail    # application log tail (if present)
+make status  # systemd status
+```
 
 ## 📄 License
 
 See `LICENSE`.
 
-## 🌟 Features
+## 📷 Screenshots
 
-![Screenshots](screenshots)
+See `screenshots/` directory for examples.
 
-### Display Modes
-
-- **Weather Display**: Current weather conditions with forecasts
-- **Spotify Integration**: Now playing display with progress bars
-
-# rPi-station
-
-A Raspberry Pi-based media and status display with a Flask web UI, Spotify/Last.fm integration, live overlay events via SSE, device webhooks (Wyze, Konnected, Xbox), notifications, and secure token handling. Supports small TFT/e-paper displays or framebuffer, with an optional HUD streaming now playing and events.
-
-## 🌟 Features
-
-### Display Modes
-
-- Weather: current conditions + forecast
-- Spotify: now playing with progress
-- Clock: digital/analog, configurable backgrounds
-- Waveshare e-paper: combined layout
-
-### Music Integration
-
-- Spotify control: play, pause, skip, volume
-- Music statistics: play counts and artist stats
-- Search & queue: search Spotify and manage queue
-- Current track display: real-time now playing info
-
-### Web Interface
-
-- Responsive UI (desktop/mobile)
-- Theme toggle (dark/light)
-- Live updates (SSE)
-- Advanced Config to manage all settings
-
-### Hardware Support
-
-- Supported displays:
-  - Framebuffer (TFT 3.5")
-  - ST7789 (Display Hat Mini)
-  - Waveshare E-Paper
-
-- GPIO buttons: configurable for ST7789
-- Touch: 3.5" TFT touch support
-- GPSD integration (optional)
-
-## 📦 Installation
-
-### Quick Start (Local Dev)
-
-```bash
-cd /path/to/rPi-station
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python neondisplay.py
-```
-
-Open the Web UI shown in logs (e.g., `http://127.0.0.1:5000`).
-
-### Raspberry Pi Setup (Step-by-Step)
-
-1. System Dependencies
-
-   ```bash
-   make system-deps
-   ```
-
-2. Python Environment & Packages
-
-   ```bash
-   make python-packages
-   ```
-
-3. Display Setup (⚠️ will reboot)
-
-   ```bash
-   make setup-display
-   ```
-
-4. System Service Setup
-
-   ```bash
-   make setup-service
-   ```
-
-5. Configuration
-
-   ```bash
-   make config
-   ```
-
-## ⚙️ Configuration
-
-Use the Advanced Config page to set:
-
-- API keys: OpenWeather, Spotify client id/secret, optional Google Geocoding
-- Last.fm: enable + scrobble thresholds
-- Display: framebuffer/ST7789, rotation, pins, fonts
-- Overlay: token, encryption, event types
-- Services: Wyze/Konnected webhooks and Xbox polling
-
-CLI helpers via `make` targets are available (optional):
-
-- `make config-api`, `make config-display`, `make config-fonts`, `make config-buttons`, `make config-wifi`, `make config-settings`
-
-## 🚀 Usage
-
-### Start/Status/Logs
-
-```bash
-make start
-make status
-make logs
-```
-
-### Web UI
-
-```text
-http://[raspberry-pi-ip]:5000
-```
-
-## 🧪 Running Tests
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pytest -q
-```
-
-See `TESTING.md` for E2E scenarios.
-
-## 🎵 Spotify Integration
-
-1. Create a Spotify Developer application
-2. Set redirect URI to `http://127.0.0.1:5000`
-3. Enter Client ID and Secret in Advanced Config
-4. Authenticate through the web interface
-
-## 📊 Music Statistics
-
-```text
-http://[raspberry-pi-ip]:5000/music_stats
-```
-
--
-- Most played songs and artists
-- Total play counts
-- Interactive bar charts
-
-## 🔧 Advanced Features
-
-- Display types: Framebuffer, ST7789, Waveshare e-paper, Dummy
-- Location: GPSD + Google Geolocation, fallback city
-- Fonts/buttons/wifi: configurable via Advanced Config
-
-## 🛠️ Maintenance
-
-- Update packages: `make update-packages`
-- View config: `make view-config`
-- Reset config: `make reset-config`
-- Cleanup: `make clean`
-
-## 🐛 Troubleshooting
-
-- evdev on macOS: skip for local dev; it’s Linux-only
-- Encryption: install `cryptography` for token encryption
-- Homebrew Python: use a venv for installing packages
-- HMAC: verify signature matches raw body and header format
-
-## 🔐 Security & Overlay
-
-- Rate limiting on `/events` and `/device_notify`
-- HMAC (sha256) validation support:
-  - Overlay: enable `overlay_hmac_enabled` + set `overlay_hmac_secret`
-  - Wyze/Konnected: `webhook_hmac_enabled` + `webhook_hmac_secret`
-  - Xbox webhook proxy: optional HMAC
-- Overlay token encryption (Fernet):
-  - Key source `file` creates `secrets/overlay_key.key`
-  - Key source `env` reads `OVERLAY_SECRET_KEY` (configurable)
-  - Regenerate: `POST /regenerate_overlay_token`
-  - Rotate key: `POST /rotate_overlay_key`
-- Overlay posts use header `X-Overlay-Token` on `/events`
-
-## 🔔 Notifications UI
-
-- JSON: `/notifications` (paging + filters)
-- Filters: `/notifications/filters`
-- Clear: `/notifications/clear` (POST)
-- Delete single: `/notifications/<id>` (DELETE)
-- UI: `/notifications/ui`
-- Storage: SQLite (`neon_notifications.db`)
-
-## 🎮 Xbox Integration
-
-- Client id/secret in Services → Xbox
-- Presence via Microsoft Graph (with token) or proxy URL
-- UI shows status and allows disconnect
-- Multi-account viewer planned
-
-## 📡 SSE Overlay
-
-- Stream: `/event_stream`
-- HUD/services post to `/events` with token/HMAC validation
-
-## 🤖 CI: GitHub Actions
-
-Workflow at `.github/workflows/ci.yml` runs pytest on push/PR to `main`/`master`.
-
-## 📄 License
-
-See `LICENSE`.
-
-## 🔧 Advanced Features
-
-### Display Types
-
-- **Framebuffer**: Standard TFT displays
-- **ST7789**: For DisplayHatMini with SPI configuration
-- **Waveshare E-Paper 2.13"**: E-ink displays
-- **Dummy Display**: No screen enabled
-
-### Location Services
-
-- **GPSD**: Hardware GPS with gpsd service
-- **Google Geolocation**: Network-based location
-- **Fallback City**: Manual location setting
-
-## 🛠️ Maintenance
-
-### Updating Packages
-
-```bash
-make update-packages
-```
-
-### Viewing Configuration
-
-```bash
-make view-config
-```
-
-### Resetting Configuration
-
-```bash
-make reset-config
-```
-
-### Complete Cleanup
-
-```bash
-make clean
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**Display Not Working**:
-
-**Spotify Authentication Fails**:
-
-**Service Won't Start**:
-
-**No Internet Connection**:
-
-### Logs and Debugging
-
-```bash
-# Service logs (systemd)
-make logs
-
-# Application logs
-make tail
-
-# Service status
-make status
-```
-
-**Note**: The display driver installation (`make setup-display`) will reboot your system. Ensure you save any work before proceeding.
-
-## 🔔 Recent Features & Improvements
-
-This project has added several new performance and integration features since the base release. Here are the highlights:
-
-- Performance improvements: The HUD now uses a ThreadPoolExecutor for non-blocking network and I/O tasks, and a ProcessPoolExecutor (lazily initialized) for CPU-heavy operations such as image resizing, dithering, and background generation. This reduces main-thread CPU and stops UI stutter.
-- Smart caching: LRU caches for album backgrounds, resized images, and dithered images reduce repeated processing. The display update process includes frame deduplication (MD5) to avoid unnecessary writes.
-- Last.fm support: Optional now-playing reporting and scrobbling with a configurable scrobble threshold and minimum time before scrobbling.
-- MusicBrainz fallback: Attempts to fetch release cover images from MusicBrainz / Cover Art Archive when Spotify art is missing.
-- Overlay & Event Streaming: A secure overlay endpoint (`/events`) streams events via SSE to `overlay.html`. You can configure an overlay token and pick which events are shown.
-- Device webhooks: Wyze snapshots (saved to `static/wyze_last.jpg`), Konnected messages, and Xbox presence/achievement events are normalized and streamed through the overlay and persisted as notifications.
-- Notifications & UI: The HUD shows latest notifications on the clock screen; a new Notifications page is available in the web UI to see and manage past events.
-- IP display: Optionally show the device local IP on the main clock page.
-- Security enhancements: Overlay uses token-based authentication and local-only checks; webhooks can use service-specific tokens.
-
-## 🔔 Notifications UI
-
-The web UI exposes a Notifications page that lists recent events received via overlay or webhooks. Access it here:
-
-```
-http://[raspberry-pi-ip]:5000/notifications/ui
-```
-
-From the Notifications page, you can filter by source and type, change page size, view multiple pages of history, and clear or delete individual notifications. Notifications are persisted in a SQLite database named `neon_notifications.db` located in the application directory.
-
-## ⚙️ Additional Notes
-
-- To enable Xbox presence with Microsoft Graph API, add your Xbox client id and secret in `Advanced Configuration`, then use the new "Connect Xbox" flow to authorize and obtain tokens.
-  - After connecting, you can disconnect via the `Disconnect Xbox` button in Advanced Configuration.
-
-# Xbox Graph OAuth Quick Steps
-
-1. Register an app in Microsoft Azure or the Microsoft Application Portal, request scopes: `offline_access`, `User.Read`, `Presence.Read`.
-2. Enter the Client ID and Client Secret under Services -> Xbox in Advanced Configuration.
-3. Click "Connect Xbox" to be redirected to the Microsoft OAuth consent screen and authorize the app.
-4. After the callback, the access token and refresh token will be saved to `config.toml` and the launcher will poll Microsoft Graph for presence updates.
-Note: You may need to expose the redirect URI in your Microsoft app registration (default is `http://127.0.0.1:5000/xbox_callback`).
-
-- Overlay tokens and webhook tokens are sensitive; consider enabling token encryption at rest.
-
-## 🔐 Overlay Token Encryption
-
-Overlay tokens and webhook tokens are stored in `config.toml` by default. If you'd prefer to encrypt the overlay token at rest:
-
-1. Open `Advanced Configuration` and check "Encrypt overlay token at rest".
-2. Regenerate or set an overlay token. When encryption is enabled the launcher will store an encrypted token in `overlay.encrypted_token` and create a key file at `secrets/overlay_key.key` with restricted file permissions.
-3. To rotate the encryption key, use the `Rotate Key` button next to the token controls (this will re-encrypt the token with a new key and return the plaintext token in the UI once so you can update places relying on the token).
-
-Important: both the HUD and the neondisplay server must have permission to read the key file so that HUD can post overlay events locally; rotate keys carefully and keep backups if needed.
-
-If you prefer environment-based key storage (suitable for automated deployments):
-
-1. In Advanced Configuration, set `Key source` to Environment Variable and enter the env var name (default `OVERLAY_SECRET_KEY`).
-2. Set the environment variable on your machine (e.g., `export OVERLAY_SECRET_KEY=$(python - <<'PY' ; from cryptography.fernet import Fernet; print(Fernet.generate_key().decode()); PY)`), then reload or restart the service so the key is present for the process.
-3. Regenerate the overlay token in the UI to have it encrypted with the env key.
-
-If you'd like, I can now implement the Xbox Microsoft Graph OAuth integration (OAuth + refresh handling), add a Notifications management UI backed by a DB, and add an overlay token encryption feature (Fernet-based) — tell me if you'd like me to proceed with those in that order.
+---
+Improvement ideas / issues welcome via GitHub. For additional integrations (e.g., multi-account Xbox, expanded webhook sources), open an Issue or PR.

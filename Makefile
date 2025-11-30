@@ -6,101 +6,75 @@ LCD_SHOW_DIR = LCD-show
 CONFIG_FILE = /opt/neondisplay/config.toml
 GREEN = \033[0;32m
 YELLOW = \033[0;33m
-RED = \033[0;31m
-BLUE = \033[0;34m
-NC = \033[0m # No Color
-
-.PHONY: all install system-deps python-packages setup-display setup-service clean status logs help config config-api config-display config-fonts config-buttons config-wifi config-settings view-config reset-config
-
-all: system-deps python-packages config setup-service
-	@echo "$(GREEN)Installation complete!$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Next steps:$(NC)"
-	@echo "1. $(YELLOW)Setup config: make config$(NC)"
-	@echo "2. $(YELLOW)Run 'make setup-display' to install LCD drivers (will reboot)$(NC)"
-	@echo "3. $(YELLOW)Check status: make status$(NC)"
-	@echo "4. $(YELLOW)View logs: make logs$(NC)"
-
-system-deps:
-	@echo "$(GREEN)Installing system dependencies...$(NC)"
-	@if command -v apt >/dev/null 2>&1; then \
-		sudo apt update; \
-		sudo apt install -y python3-pip python3-venv curl hostapd dnsmasq; \
-		sudo apt install -y libjpeg-dev zlib1g-dev libpng-dev libfreetype6-dev git; \
-		sudo apt install -y liblcms2-dev libwebp-dev libtiff-dev libopenjp2-7-dev libxcb1-dev; \
-		sudo apt install -y libopenblas-dev libcairo2-dev libdbus-1-dev; \
-	else \
-		echo "$(YELLOW)apt not found; skipping Debian/Raspbian packages$(NC)"; \
-	fi
-	@echo "$(GREEN)Installing uv system-wide...$(NC)"
-	curl -LsSf https://astral.sh/uv/install.sh | sh || true
-	@if [ -x "$${HOME}/.local/bin/uv" ]; then \
-		sudo mv "$${HOME}/.local/bin/uv" /usr/local/bin/ 2>/dev/null || true; \
-	fi
-	@if [ -x "/root/.local/bin/uv" ]; then \
-		sudo mv /root/.local/bin/uv /usr/local/bin/ 2>/dev/null || true; \
-	fi
-	@if [ -x "$${HOME}/.local/bin/uvx" ]; then \
-		sudo mv "$${HOME}/.local/bin/uvx" /usr/local/bin/ 2>/dev/null || true; \
-	fi
-	@if [ -x "/root/.local/bin/uvx" ]; then \
-		sudo mv /root/.local/bin/uvx /usr/local/bin/ 2>/dev/null || true; \
-	fi
-	@if ! command -v uv >/dev/null 2>&1; then \
-		echo "$(YELLOW)uv not found in PATH. You can install via Homebrew: brew install uv, or use pipx to manage it.$(NC)"; \
-	else \
-		echo "$(GREEN)uv installed$(NC)"; \
-	fi
-	@echo "$(GREEN)System dependencies step completed$(NC)"
-
-python-packages:
-	@echo "$(GREEN)Setting up Python virtual environment with uv...$(NC)"
-	sudo mkdir -p $(PROJECT_DIR)
-	sudo chown $$USER:$$USER $(PROJECT_DIR)
-	@if [ -d "$(VENV_DIR)" ]; then \
-		echo "$(YELLOW)Existing venv detected at $(VENV_DIR). Cleaning up...$(NC)"; \
-		sudo rm -rf "$(VENV_DIR)"; \
-	fi
-	uv venv $(VENV_DIR)
-	@echo "$(GREEN)Installing Python packages with uv...$(NC)"
-	# Use uv pip to install packages in the virtual environment
-	uv pip install --python $(VENV_DIR)/bin/python spotipy st7789 eink-wave
-	uv pip install --python $(VENV_DIR)/bin/python evdev numpy pillow flask
-	uv pip install --python $(VENV_DIR)/bin/python pycairo dbus-python
-	uv pip install --python $(VENV_DIR)/bin/python toml
-	uv pip install --python $(VENV_DIR)/bin/python setuptools wheel
-	@echo "$(GREEN)All Python packages installed in virtual environment$(NC)"
-	@echo "$(GREEN)Copying project files...$(NC)"
-	cp -r . $(PROJECT_DIR)/
-	if [ -f "./waveshare/epdconfig.py" ]; then \
-		sudo cp ./waveshare/epdconfig.py $(VENV_DIR)/lib/python3.*/site-packages/waveshare_epd/; \
-		echo "$(GREEN)Waveshare config updated in virtual environment$(NC)"; \
-	fi
-
-python-packages-macos:
-	@echo "$(GREEN)Setting up Python virtual environment on macOS (fallback)$(NC)"
-	sudo mkdir -p $(PROJECT_DIR)
-	sudo chown $$USER:$$USER $(PROJECT_DIR)
-	@if [ -d "$(VENV_DIR)" ]; then \
-		echo "$(YELLOW)Existing venv detected at $(VENV_DIR). Cleaning up...$(NC)"; \
-		sudo rm -rf "$(VENV_DIR)"; \
-	fi
-	python3 -m venv $(VENV_DIR)
-	@echo "$(GREEN)Installing Python packages with pip...$(NC)"
-	"$(VENV_DIR)/bin/pip" install --upgrade pip setuptools wheel
-	"$(VENV_DIR)/bin/pip" install spotipy st7789 eink-wave
-	"$(VENV_DIR)/bin/pip" install evdev numpy pillow flask
-	"$(VENV_DIR)/bin/pip" install pycairo dbus-python
-	"$(VENV_DIR)/bin/pip" install toml
-	@echo "$(GREEN)All Python packages installed in virtual environment$(NC)"
-	@echo "$(GREEN)Copying project files...$(NC)"
-	cp -r . $(PROJECT_DIR)/
-	@if [ -f "./waveshare/epdconfig.py" ]; then \
-		EPD_DIR=$$("$(VENV_DIR)/bin/python3" -c "import site,glob; import sys; d=[p for p in site.getsitepackages() if 'site-packages' in p]; print(d[0] if d else sys.prefix)" )/site-packages/waveshare_epd; \
-		sudo mkdir -p "$$EPD_DIR"; \
-		sudo cp ./waveshare/epdconfig.py "$$EPD_DIR"/; \
-		echo "$(GREEN)Waveshare config updated in virtual environment$(NC)"; \
-	fi
+	@sudo sh -c 'cat > "$(CONFIG_FILE)" <<"EOF"\
+[display]\
+type = "framebuffer"\
+framebuffer = "/dev/fb1"\
+rotation = 0\
+\
+[display.st7789]\
+spi_port = 0\
+spi_cs = 1\
+dc_pin = 9\
+backlight_pin = 13\
+rotation = 0\
+spi_speed = 32000000\
+\
+[fonts]\
+large_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"\
+large_font_size = 36\
+medium_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
+medium_font_size = 24\
+small_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
+small_font_size = 16\
+spot_large_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"\
+spot_large_font_size = 26\
+spot_medium_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
+spot_medium_font_size = 18\
+spot_small_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
+spot_small_font_size = 12\
+\
+[api_keys]\
+openweather = ""\
+google_geo = ""\
+client_id = ""\
+client_secret = ""\
+redirect_uri = "http://127.0.0.1:5000"\
+\
+[settings]\
+framebuffer = "/dev/fb1"\
+start_screen = "weather"\
+fallback_city = ""\
+use_gpsd = true\
+use_google_geo = true\
+time_display = true\
+progressbar_display = true\
+enable_current_track_display = true\
+max_fps = 25\
+\
+[wifi]\
+ap_ssid = "Neonwifi-Manager"\
+ap_ip = "192.168.42.1"\
+\
+[auto_start]\
+auto_start_hud = true\
+auto_start_neonwifi = true\
+check_internet = true\
+\
+[clock]\
+type = "digital"\
+background = "color"\
+color = "black"\
+\
+[buttons]\
+button_a = 5\
+button_b = 6\
+button_x = 16\
+button_y = 24\
+\
+[ui]\
+theme = "dark"\
+EOF'
 
 setup-display:
 	@echo "$(YELLOW)WARNING: This will install LCD drivers and reboot the system!$(NC)"
@@ -118,6 +92,45 @@ setup-display:
 	git clone https://github.com/goodtft/LCD-show.git $(LCD_SHOW_DIR)
 	cd $(LCD_SHOW_DIR) && chmod +x ./*
 	cd $(LCD_SHOW_DIR) && sudo ./LCD35-show
+
+setup-fbcp:
+	@echo "$(YELLOW)Installing fbcp-ili9341 (DMA-accelerated framebuffer copy)...$(NC)"
+	@if command -v apt >/dev/null 2>&1; then \
+		sudo apt update; \
+		sudo apt install -y git build-essential cmake; \
+	else \
+		echo "$(YELLOW)apt not found; ensure cmake & gcc are installed manually$(NC)"; \
+	fi
+	@if [ -d fbcp-ili9341 ]; then \
+		echo "$(YELLOW)Existing fbcp-ili9341 directory found; pulling latest...$(NC)"; \
+		cd fbcp-ili9341 && git pull --rebase || true; \
+	else \
+		git clone https://github.com/juj/fbcp-ili9341.git fbcp-ili9341; \
+	fi
+	@mkdir -p fbcp-ili9341/build
+	@cd fbcp-ili9341/build && cmake .. -DST7789=ON -DARMV8A=ON -DSTATISTICS=0 || true
+	@cd fbcp-ili9341/build && make -j$$(nproc || echo 2) || make || true
+	@if [ -f fbcp-ili9341/build/fbcp-ili9341 ]; then \
+		sudo install fbcp-ili9341/build/fbcp-ili9341 /usr/local/bin/fbcp-ili9341; \
+		echo "$(GREEN)fbcp-ili9341 binary installed$(NC)"; \
+	else \
+		echo "$(RED)fbcp-ili9341 build failed$(NC)"; \
+	fi
+	@echo "$(GREEN)Creating systemd service for fbcp-ili9341...$(NC)"
+	@echo "[Unit]" | sudo tee /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "Description=DMA Accelerated fbcp for SPI LCD" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "After=network.target" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "[Service]" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "Type=simple" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "ExecStart=/usr/local/bin/fbcp-ili9341" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "Restart=always" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "RestartSec=5" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "[Install]" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@echo "WantedBy=multi-user.target" | sudo tee -a /etc/systemd/system/fbcp-ili9341.service >/dev/null
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable fbcp-ili9341.service || true
+	@sudo systemctl restart fbcp-ili9341.service || true
+	@echo "$(GREEN)fbcp-ili9341 service installed & started$(NC)"
 
 sync-code:
 	@echo "$(GREEN)Syncing source code to $(PROJECT_DIR)...$(NC)"
@@ -397,6 +410,7 @@ config-settings:
 	current_time_display=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('settings', {}).get('time_display', True))" 2>/dev/null || echo "True"); \
 	current_progressbar_display=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('settings', {}).get('progressbar_display', True))" 2>/dev/null || echo "True"); \
 	current_enable_current_track_display=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('settings', {}).get('enable_current_track_display', True))" 2>/dev/null || echo "True"); \
+	current_max_fps=$$($(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); print(config.get('settings', {}).get('max_fps', 25))" 2>/dev/null || echo "25"); \
 	echo "$(YELLOW)Current values (press Enter to keep):$(NC)"; \
 	echo "  Start Screen: $$current_start_screen"; \
 	read -p "  New Start Screen [spotify]: " start_screen; \
@@ -427,9 +441,12 @@ config-settings:
 	read -p "  Enable Progress Bar Display [y]: " progressbar_display; \
 	if [ -z "$$progressbar_display" ]; then progressbar_display_bool=$$current_progressbar_display; elif [ "$$progressbar_display" = "y" ] || [ "$$progressbar_display" = "Y" ]; then progressbar_display_bool=True; else progressbar_display_bool=False; fi; \
 	echo "  Current Track Display: $$current_enable_current_track_display"; \
+	echo "  Max FPS (draw throttle): $$current_max_fps"; \
 	read -p "  Enable Current Track Display [y]: " enable_current_track_display; \
+	read -p "  Max FPS (lower to reduce tearing) [25]: " max_fps; \
 	if [ -z "$$enable_current_track_display" ]; then enable_current_track_display_bool=$$current_enable_current_track_display; elif [ "$$enable_current_track_display" = "y" ] || [ "$$enable_current_track_display" = "Y" ]; then enable_current_track_display_bool=True; else enable_current_track_display_bool=False; fi; \
-	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; s = cfg.setdefault('settings', {}); s.update({'start_screen': '$$start_screen', 'fallback_city': '$$fallback_city', 'use_gpsd': $$use_gpsd_bool, 'use_google_geo': $$use_google_geo_bool, 'time_display': $$time_display_bool, 'progressbar_display': $$progressbar_display_bool, 'enable_current_track_display': $$enable_current_track_display_bool}); c = cfg.setdefault('clock', {}); c.update({'type': '$$clock_type', 'background': '$$clock_background', 'color': '$$clock_color'}); toml.dump(cfg, open(path, 'w'))"; \
+	max_fps_val=$${max_fps:-$$current_max_fps}; \
+	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; s = cfg.setdefault('settings', {}); s.update({'start_screen': '$$start_screen', 'fallback_city': '$$fallback_city', 'use_gpsd': $$use_gpsd_bool, 'use_google_geo': $$use_google_geo_bool, 'time_display': $$time_display_bool, 'progressbar_display': $$progressbar_display_bool, 'enable_current_track_display': $$enable_current_track_display_bool, 'max_fps': int('$$max_fps_val')}); c = cfg.setdefault('clock', {}); c.update({'type': '$$clock_type', 'background': '$$clock_background', 'color': '$$clock_color'}); toml.dump(cfg, open(path, 'w'))"; \
 	echo "$(GREEN)✓ General settings updated$(NC)"
 	@echo ""
 
@@ -462,32 +479,6 @@ rotation = 0\
 \
 [display.st7789]\
 spi_port = 0\
-spi_cs = 1\
-dc_pin = 9\
-backlight_pin = 13\
-rotation = 0\
-spi_speed = 60000000\
-\
-[fonts]\
-large_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"\
-large_font_size = 36\
-medium_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
-medium_font_size = 24\
-small_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
-small_font_size = 16\
-spot_large_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"\
-spot_large_font_size = 26\
-spot_medium_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
-spot_medium_font_size = 18\
-spot_small_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"\
-spot_small_font_size = 12\
-\
-[api_keys]\
-openweather = ""\
-google_geo = ""\
-client_id = ""\
-client_secret = ""\
-redirect_uri = "http://127.0.0.1:5000"\
 \
 [settings]\
 framebuffer = "/dev/fb1"\
@@ -495,6 +486,33 @@ start_screen = "weather"\
 fallback_city = ""\
 use_gpsd = true\
 use_google_geo = true\
+time_display = true\
+progressbar_display = true\
+enable_current_track_display = true\
+max_fps = 25\
+\
+[wifi]\
+ap_ssid = "Neonwifi-Manager"\
+ap_ip = "192.168.42.1"\
+\
+[auto_start]\
+auto_start_hud = true\
+auto_start_neonwifi = true\
+check_internet = true\
+\
+[clock]\
+type = "digital"\
+background = "color"\
+color = "black"\
+\
+[buttons]\
+button_a = 5\
+button_b = 6\
+button_x = 16\
+button_y = 24\
+\
+[ui]\
+theme = "dark"\
 time_display = true\
 progressbar_display = true\
 enable_current_track_display = true\
@@ -584,6 +602,7 @@ help:
 	@echo "  $(GREEN)python-packages$(NC) - Setup venv and install ALL Python packages via uv"
 	@echo "  $(GREEN)setup-service$(NC)   - Setup systemd service using virtual environment"
 	@echo "  $(GREEN)setup-display$(NC)   - $(RED)WARNING: Install LCD drivers and reboot$(NC)"
+	@echo "  $(GREEN)setup-fbcp$(NC)      - Build & install fbcp-ili9341 DMA driver"
 	@echo "  $(GREEN)config$(NC)          - Walk-through configuration (all settings)"
 	@echo "  $(GREEN)config-api$(NC)      - Configure API keys"
 	@echo "  $(GREEN)config-display$(NC)  - Configure display settings"
