@@ -206,6 +206,7 @@ config-api:
 	read -p "  New Redirect URI [http://127.0.0.1:5000]: " redirect_uri; \
 	redirect_uri=$${redirect_uri:-$$current_redirect_uri}; \
 	$(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); config['api_keys']['openweather'] = '$$openweather'; config['api_keys']['google_geo'] = '$$google_geo'; config['api_keys']['client_id'] = '$$client_id'; config['api_keys']['client_secret'] = '$$client_secret'; config['api_keys']['redirect_uri'] = '$$redirect_uri'; toml.dump(config, open('$(CONFIG_FILE)', 'w'))"; \
+	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; cfg.setdefault('api_keys', {}); cfg['api_keys'].update({'openweather': '$$openweather', 'google_geo': '$$google_geo', 'client_id': '$$client_id', 'client_secret': '$$client_secret', 'redirect_uri': '$$redirect_uri'}); toml.dump(cfg, open(path, 'w'))"; \
 	echo "$(GREEN)✓ API keys updated$(NC)"
 	@echo ""
 
@@ -253,7 +254,7 @@ config-display:
 	echo "  SPI Speed: $$current_spi_speed"; \
 	read -p "  New SPI Speed [60000000]: " spi_speed; \
 	spi_speed=$${spi_speed:-$$current_spi_speed}; \
-	$(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); config['display']['type'] = '$$display_type'; config['display']['framebuffer'] = '$$framebuffer'; config['display']['rotation'] = int('$$rotation'); config['display']['st7789']['spi_port'] = int('$$spi_port'); config['display']['st7789']['spi_cs'] = int('$$spi_cs'); config['display']['st7789']['dc_pin'] = int('$$dc_pin'); config['display']['st7789']['backlight_pin'] = int('$$backlight_pin'); config['display']['st7789']['rotation'] = int('$$st7789_rotation'); config['display']['st7789']['spi_speed'] = int('$$spi_speed'); toml.dump(config, open('$(CONFIG_FILE)', 'w'))"; \
+	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; d = cfg.setdefault('display', {}); d['type'] = '$$display_type'; d['framebuffer'] = '$$framebuffer'; d['rotation'] = int('$$rotation'); st = d.setdefault('st7789', {}); st.update({'spi_port': int('$$spi_port'), 'spi_cs': int('$$spi_cs'), 'dc_pin': int('$$dc_pin'), 'backlight_pin': int('$$backlight_pin'), 'rotation': int('$$st7789_rotation'), 'spi_speed': int('$$spi_speed')}); toml.dump(cfg, open(path, 'w'))"; \
 	echo "$(GREEN)✓ Display settings updated$(NC)"
 	@echo ""
 
@@ -314,7 +315,7 @@ config-fonts:
 	echo "  Spotify Small Font Size: $$current_spot_small_font_size"; \
 	read -p "  New Spotify Small Font Size [12]: " spot_small_font_size; \
 	spot_small_font_size=$${spot_small_font_size:-$$current_spot_small_font_size}; \
-	$(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); config['fonts']['large_font_path'] = '$$large_font_path'; config['fonts']['large_font_size'] = int('$$large_font_size'); config['fonts']['medium_font_path'] = '$$medium_font_path'; config['fonts']['medium_font_size'] = int('$$medium_font_size'); config['fonts']['small_font_path'] = '$$small_font_path'; config['fonts']['small_font_size'] = int('$$small_font_size'); config['fonts']['spot_large_font_path'] = '$$spot_large_font_path'; config['fonts']['spot_large_font_size'] = int('$$spot_large_font_size'); config['fonts']['spot_medium_font_path'] = '$$spot_medium_font_path'; config['fonts']['spot_medium_font_size'] = int('$$spot_medium_font_size'); config['fonts']['spot_small_font_path'] = '$$spot_small_font_path'; config['fonts']['spot_small_font_size'] = int('$$spot_small_font_size'); toml.dump(config, open('$(CONFIG_FILE)', 'w'))"; \
+	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; f = cfg.setdefault('fonts', {}); f.update({'large_font_path': '$$large_font_path', 'large_font_size': int('$$large_font_size'), 'medium_font_path': '$$medium_font_path', 'medium_font_size': int('$$medium_font_size'), 'small_font_path': '$$small_font_path', 'small_font_size': int('$$small_font_size'), 'spot_large_font_path': '$$spot_large_font_path', 'spot_large_font_size': int('$$spot_large_font_size'), 'spot_medium_font_path': '$$spot_medium_font_path', 'spot_medium_font_size': int('$$spot_medium_font_size'), 'spot_small_font_path': '$$spot_small_font_path', 'spot_small_font_size': int('$$spot_small_font_size')}); toml.dump(cfg, open(path, 'w'))"; \
 	echo "$(GREEN)✓ Font settings updated$(NC)"
 	@echo ""
 
@@ -341,7 +342,7 @@ config-buttons:
 	echo "  Button Y GPIO Pin: $$current_button_y"; \
 	read -p "  New Button Y GPIO Pin [24]: " button_y; \
 	button_y=$${button_y:-$$current_button_y}; \
-	$(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); config['buttons']['button_a'] = int('$$button_a'); config['buttons']['button_b'] = int('$$button_b'); config['buttons']['button_x'] = int('$$button_x'); config['buttons']['button_y'] = int('$$button_y'); toml.dump(config, open('$(CONFIG_FILE)', 'w'))"; \
+	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; b = cfg.setdefault('buttons', {}); b.update({'button_a': int('$$button_a'), 'button_b': int('$$button_b'), 'button_x': int('$$button_x'), 'button_y': int('$$button_y')}); toml.dump(cfg, open(path, 'w'))"; \
 	echo "$(GREEN)✓ Button GPIO settings updated$(NC)"
 	@echo ""
 
@@ -360,7 +361,7 @@ config-wifi:
 	echo "  AP IP: $$current_ap_ip"; \
 	read -p "  New AP IP [192.168.42.1]: " ap_ip; \
 	ap_ip=$${ap_ip:-$$current_ap_ip}; \
-	$(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); config['wifi']['ap_ssid'] = '$$ap_ssid'; config['wifi']['ap_ip'] = '$$ap_ip'; toml.dump(config, open('$(CONFIG_FILE)', 'w'))"; \
+	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; w = cfg.setdefault('wifi', {}); w.update({'ap_ssid': '$$ap_ssid', 'ap_ip': '$$ap_ip'}); toml.dump(cfg, open(path, 'w'))"; \
 	echo "$(GREEN)✓ WiFi settings updated$(NC)"
 	@echo ""
 
@@ -412,7 +413,7 @@ config-settings:
 	echo "  Current Track Display: $$current_enable_current_track_display"; \
 	read -p "  Enable Current Track Display [y]: " enable_current_track_display; \
 	if [ -z "$$enable_current_track_display" ]; then enable_current_track_display_bool=$$current_enable_current_track_display; elif [ "$$enable_current_track_display" = "y" ] || [ "$$enable_current_track_display" = "Y" ]; then enable_current_track_display_bool=True; else enable_current_track_display_bool=False; fi; \
-	$(VENV_DIR)/bin/python3 -c "import toml; config = toml.load('$(CONFIG_FILE)'); config['settings']['start_screen'] = '$$start_screen'; config['settings']['fallback_city'] = '$$fallback_city'; config['settings']['use_gpsd'] = $$use_gpsd_bool; config['settings']['use_google_geo'] = $$use_google_geo_bool; config['settings']['time_display'] = $$time_display_bool; config['settings']['progressbar_display'] = $$progressbar_display_bool; config['settings']['enable_current_track_display'] = $$enable_current_track_display_bool; config['clock']['type'] = '$$clock_type'; config['clock']['background'] = '$$clock_background'; config['clock']['color'] = '$$clock_color'; toml.dump(config, open('$(CONFIG_FILE)', 'w'))"; \
+	$(VENV_DIR)/bin/python3 -c "import toml, os; path='$(CONFIG_FILE)'; cfg = toml.load(path) if os.path.exists(path) else {}; s = cfg.setdefault('settings', {}); s.update({'start_screen': '$$start_screen', 'fallback_city': '$$fallback_city', 'use_gpsd': $$use_gpsd_bool, 'use_google_geo': $$use_google_geo_bool, 'time_display': $$time_display_bool, 'progressbar_display': $$progressbar_display_bool, 'enable_current_track_display': $$enable_current_track_display_bool}); c = cfg.setdefault('clock', {}); c.update({'type': '$$clock_type', 'background': '$$clock_background', 'color': '$$clock_color'}); toml.dump(cfg, open(path, 'w'))"; \
 	echo "$(GREEN)✓ General settings updated$(NC)"
 	@echo ""
 
