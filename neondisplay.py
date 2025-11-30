@@ -94,8 +94,8 @@ DEFAULT_CONFIG = {
             "client_id": "",
             "client_secret": "",
             "refresh_token": "",
-            "poll_interval": 60
-            ,"presence_url": ""
+            "poll_interval": 60,
+            "presence_url": ""
         },
         "konnected": {
             "enabled": False,
@@ -103,18 +103,22 @@ DEFAULT_CONFIG = {
         }
     },
     "ui": {
+        "theme": "dark"
+    },
     "overlay": {
         "enabled": False,
         "token": "",
         "port": 5000,
+        "encrypted": False,
+        "key_source": "file",
+        "env_key_name": "OVERLAY_SECRET_KEY",
         "events": {
             "scrobble": True,
             "track_change": True,
-            "cover_fallback": False
-            ,"device_notify": True
+            "cover_fallback": False,
+            "device_notify": True
         }
     },
-    # Control showing the Pi's IP on main screen
     "display_ip_on_main": True,
     "wifi": {
         "ap_ssid": "Neonwifi-Manager",
@@ -140,9 +144,6 @@ DEFAULT_CONFIG = {
     "logging": {
         "max_log_lines": 10000,
         "max_backup_files": 5
-    },
-    "ui": {
-        "theme": "dark"
     }
 }
 
@@ -154,6 +155,54 @@ retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 50
 adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
 session.mount('http://', adapter)
 session.mount('https://', adapter)
+
+# Simple in-memory rate limiter
+_rate_limit_cache = {}
+_rate_limit_lock = threading.Lock()
+
+def rate_limiter(max_calls=60, period=60):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            try:
+                ip = request.remote_addr or '127.0.0.1'
+            except Exception:
+                ip = '127.0.0.1'
+            key = f"rl:{f.__name__}:{ip}"
+            now = time.time()
+            with _rate_limit_lock:
+                data = _rate_limit_cache.get(key, {'count': 0, 'start': now})
+                if now - data['start'] > period:
+                    data = {'count': 0, 'start': now}
+                data['count'] += 1
+                _rate_limit_cache[key] = data
+                if data['count'] > max_calls:
+                    return 'Rate limit exceeded', 429
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+def verify_hmac(body_bytes, secret):
+    """Verify HMAC-SHA256 signature header 'X-Hub-Signature' or 'X-Hub-Signature-256' against given secret."""
+    if not secret:
+        return False
+    sig_header = request.headers.get('X-Hub-Signature-256') or request.headers.get('X-Hub-Signature')
+    if not sig_header:
+        return False
+    if '=' in sig_header:
+        algo, val = sig_header.split('=', 1)
+    else:
+        # default to sha256
+        algo, val = 'sha256', sig_header
+    algo = algo.lower()
+    if algo not in ('sha256', 'sha1'):
+        return False
+    import hmac as _hmac
+    digestmod = 'sha256' if algo == 'sha256' else 'sha1'
+    computed = _hmac.new(secret if isinstance(secret, bytes) else secret.encode('utf-8'), body_bytes, digestmod).hexdigest()
+    return _hmac.compare_digest(computed, val)
+
 
 # DB connection + lock
 _db_conn = None
@@ -370,45 +419,45 @@ def get_spotify_client():
                 return None, f"Token refresh failed: {str(e)}"
         sp = spotipy.Spotify(auth=token_info['access_token'])
         return sp, "Success"
-
-
-    def get_overlay_token_from_config(cfg=None):
-        """Return decrypted overlay token if config uses encryption, otherwise return plain token."""
-        try:
-            if cfg is None:
-                cfg = load_config()
-            overlay_cfg = cfg.get('overlay', {})
-            if overlay_cfg.get('encrypted') and overlay_cfg.get('encrypted_token'):
-                enc = overlay_cfg.get('encrypted_token')
-                if not HAS_CRYPTO:
-                    return None
-                key_source = overlay_cfg.get('key_source', 'file')
-                if key_source == 'env':
-                    env_key_name = overlay_cfg.get('env_key_name', 'OVERLAY_SECRET_KEY')
-                    k = os.environ.get(env_key_name)
-                    if not k:
-                        return None
-                    if isinstance(k, str):
-                        k = k.encode('utf-8')
-                else:
-                    key_path = os.path.join('secrets', 'overlay_key.key')
-                    if not os.path.exists(key_path):
-                        return None
-                    with open(key_path, 'rb') as kf:
-                        k = kf.read()
-                f = Fernet(k)
-                try:
-                    token = f.decrypt(enc.encode('utf-8')).decode('utf-8')
-                    return token
-                except Exception:
-                    return None
-            return overlay_cfg.get('token')
-        except Exception:
-            return None
     except Exception as e:
         logger = logging.getLogger('Launcher')
         logger.error(f"Error creating Spotify client: {e}")
         return None, f"Client creation failed: {str(e)}"
+
+
+def get_overlay_token_from_config(cfg=None):
+    """Return decrypted overlay token if config uses encryption, otherwise return plain token."""
+    try:
+        if cfg is None:
+            cfg = load_config()
+        overlay_cfg = cfg.get('overlay', {})
+        if overlay_cfg.get('encrypted') and overlay_cfg.get('encrypted_token'):
+            enc = overlay_cfg.get('encrypted_token')
+            if not HAS_CRYPTO:
+                return None
+            key_source = overlay_cfg.get('key_source', 'file')
+            if key_source == 'env':
+                env_key_name = overlay_cfg.get('env_key_name', 'OVERLAY_SECRET_KEY')
+                k = os.environ.get(env_key_name)
+                if not k:
+                    return None
+                if isinstance(k, str):
+                    k = k.encode('utf-8')
+            else:
+                key_path = os.path.join('secrets', 'overlay_key.key')
+                if not os.path.exists(key_path):
+                    return None
+                with open(key_path, 'rb') as kf:
+                    k = kf.read()
+            f = Fernet(k)
+            try:
+                token = f.decrypt(enc.encode('utf-8')).decode('utf-8')
+                return token
+            except Exception:
+                return None
+        return overlay_cfg.get('token')
+    except Exception:
+        return None
 
 def is_hud_running():
     global hud_process
@@ -1346,72 +1395,70 @@ def advanced_config():
     spotify_configured = bool(config["api_keys"]["client_id"] and config["api_keys"]["client_secret"])
     spotify_authenticated, _ = check_spotify_auth()
     ui_config = config.get("ui", {"theme": "dark"})
-        lastfm_configured = bool(config.get('lastfm', {}).get('api_key') and config.get('lastfm', {}).get('username'))
-        lastfm_enabled = bool(config.get('lastfm', {}).get('enabled', False))
-        return render_template('advanced_config.html',
-            config=config, 
-            spotify_configured=spotify_configured,
-            spotify_authenticated=spotify_authenticated,
-            lastfm_configured=lastfm_configured,
-            lastfm_enabled=lastfm_enabled,
-            ui_config=ui_config
-        )
+    lastfm_configured = bool(config.get('lastfm', {}).get('api_key') and config.get('lastfm', {}).get('username'))
+    lastfm_enabled = bool(config.get('lastfm', {}).get('enabled', False))
+    return render_template('advanced_config.html',
+        config=config, 
+        spotify_configured=spotify_configured,
+        spotify_authenticated=spotify_authenticated,
+        lastfm_configured=lastfm_configured,
+        lastfm_enabled=lastfm_enabled,
+        ui_config=ui_config
+    )
 
 
-    @app.route('/regenerate_overlay_token', methods=['POST'])
-    def regenerate_overlay_token():
-        """Generate or rotate shared overlay token.
-        Returns JSON with new token or error.
-        """
-        try:
-            cfg = load_config()
-            if 'overlay' not in cfg:
-                cfg['overlay'] = {}
-            import secrets
-            new_token = secrets.token_hex(16)
-            # If overlay token encryption is enabled, encrypt it and store 'encrypted_token' instead
-            encrypt_tokens = cfg.get('overlay', {}).get('encrypted', False)
-            key_source = cfg.get('overlay', {}).get('key_source', 'file')
-            env_key_name = cfg.get('overlay', {}).get('env_key_name', 'OVERLAY_SECRET_KEY')
-            if encrypt_tokens and HAS_CRYPTO:
-                if key_source == 'env':
-                    # Use env key value
-                    env_key = os.environ.get(env_key_name)
-                    if env_key:
-                        k = env_key.encode('utf-8') if isinstance(env_key, str) else env_key
-                        f = Fernet(k)
-                        enc = f.encrypt(new_token.encode('utf-8'))
-                        cfg['overlay']['encrypted_token'] = enc.decode('utf-8')
-                        cfg['overlay']['token'] = ''
-                    else:
-                        # Cannot encrypt without key in env
-                        # store as plaintext so user can copy and set env var, but warn
-                        cfg['overlay']['token'] = new_token
-                else:
-                    key_path = os.path.join('secrets', 'overlay_key.key')
-                    os.makedirs('secrets', exist_ok=True)
-                    if not os.path.exists(key_path):
-                        k = Fernet.generate_key()
-                        with open(key_path, 'wb') as kf:
-                            kf.write(k)
-                        os.chmod(key_path, 0o600)
-                    else:
-                        with open(key_path, 'rb') as kf:
-                            k = kf.read()
+@app.route('/regenerate_overlay_token', methods=['POST'])
+def regenerate_overlay_token():
+    """Generate or rotate shared overlay token.
+    Returns JSON with new token or error.
+    """
+    try:
+        cfg = load_config()
+        if 'overlay' not in cfg:
+            cfg['overlay'] = {}
+        import secrets
+        new_token = secrets.token_hex(16)
+        # If overlay token encryption is enabled, encrypt it and store 'encrypted_token' instead
+        encrypt_tokens = cfg.get('overlay', {}).get('encrypted', False)
+        key_source = cfg.get('overlay', {}).get('key_source', 'file')
+        env_key_name = cfg.get('overlay', {}).get('env_key_name', 'OVERLAY_SECRET_KEY')
+        if encrypt_tokens and HAS_CRYPTO:
+            if key_source == 'env':
+                env_key = os.environ.get(env_key_name)
+                if env_key:
+                    k = env_key.encode('utf-8') if isinstance(env_key, str) else env_key
                     f = Fernet(k)
                     enc = f.encrypt(new_token.encode('utf-8'))
                     cfg['overlay']['encrypted_token'] = enc.decode('utf-8')
-                    # keep token blank to avoid accidental exposure
                     cfg['overlay']['token'] = ''
+                else:
+                    cfg['overlay']['token'] = new_token
+                    cfg['overlay']['encrypted_token'] = ''
             else:
-                cfg['overlay']['token'] = new_token
-            # Persist
-            save_config(cfg)
-            return {'token': new_token}, 200
-        except Exception as e:
-            logger = logging.getLogger('Launcher')
-            logger.error(f"Failed to regenerate overlay token: {e}")
-            return {'error': 'failed'}, 500
+                key_path = os.path.join('secrets', 'overlay_key.key')
+                os.makedirs('secrets', exist_ok=True)
+                if not os.path.exists(key_path):
+                    k = Fernet.generate_key()
+                    with open(key_path, 'wb') as kf:
+                        kf.write(k)
+                    os.chmod(key_path, 0o600)
+                else:
+                    with open(key_path, 'rb') as kf:
+                        k = kf.read()
+                f = Fernet(k)
+                enc = f.encrypt(new_token.encode('utf-8'))
+                cfg['overlay']['encrypted_token'] = enc.decode('utf-8')
+                cfg['overlay']['token'] = ''
+        else:
+            cfg['overlay']['token'] = new_token
+            cfg['overlay']['encrypted_token'] = ''
+
+        save_config(cfg)
+        return {'token': new_token}, 200
+    except Exception as e:
+        logger = logging.getLogger('Launcher')
+        logger.error(f"Failed to regenerate overlay token: {e}")
+        return {'error': 'failed'}, 500
 
 
     @app.route('/rotate_overlay_key', methods=['POST'])
@@ -1452,6 +1499,7 @@ def advanced_config():
 
 
     @app.route('/events', methods=['POST'])
+    @rate_limiter(max_calls=120, period=60)
     def ingest_event():
         """Endpoint for HUD (local) to POST events for streaming to overlay clients."""
         global recent_events, event_condition
@@ -1460,17 +1508,26 @@ def advanced_config():
         overlay_cfg = cfg_local.get('overlay', {})
         if not overlay_cfg.get('enabled', False):
             return 'Overlay disabled', 403
-        # overlay enabled, require token
+        # overlay enabled, require token or HMAC
         if overlay_cfg.get('enabled', False):
             expected_token = get_overlay_token_from_config(cfg_local)
-            if not expected_token:
-                # overlay enabled but no token configured; reject
-                return 'Overlay not configured (no token)', 403
             header_token = request.headers.get('X-Overlay-Token')
-            if header_token != expected_token:
-                logger = logging.getLogger('Launcher')
-                logger.warning('Overlay event rejected: invalid token')
-                return 'Invalid token', 403
+            if expected_token and header_token and header_token == expected_token:
+                pass
+            else:
+                # Try HMAC if configured
+                if overlay_cfg.get('hmac_enabled') and overlay_cfg.get('hmac_secret'):
+                    try:
+                        body_bytes = request.get_data() or b''
+                        if not verify_hmac(body_bytes, overlay_cfg.get('hmac_secret')):
+                            logger = logging.getLogger('Launcher')
+                            logger.warning('Overlay event rejected: invalid HMAC')
+                            return 'Invalid signature', 403
+                    except Exception:
+                        return 'Invalid signature', 403
+                else:
+                    # no valid token or hmac configured; reject
+                    return 'Invalid token', 403
             # Require local requests (loopback)
             ip = request.remote_addr
             if ip not in ('127.0.0.1', '::1'):
@@ -1925,6 +1982,7 @@ def xbox_status():
 
 
     @app.route('/device_notify', methods=['POST'])
+    @rate_limiter(max_calls=180, period=60)
     def device_notify():
         """A dedicated endpoint for Wyze, Konnected, Xbox (or other) webhooks.
         The payload should contain a `source` or `service` field identifying the origin.
@@ -1946,7 +2004,14 @@ def xbox_status():
                 if expected_token:
                     header_token = request.headers.get('X-Webhook-Token')
                     if header_token != expected_token:
-                        return 'Invalid token', 403
+                        # Try HMAC with service webhook secret if configured
+                        s_hmac_secret = service_cfg.get('webhook_hmac_secret')
+                        s_hmac_enabled = service_cfg.get('webhook_hmac_enabled', False)
+                        body_bytes = request.get_data() or b''
+                        if s_hmac_enabled and s_hmac_secret and verify_hmac(body_bytes, s_hmac_secret):
+                            pass
+                        else:
+                            return 'Invalid token', 403
                 # accept event and forward to event stream and notifications
                 # Wyze-specific handling: optional snapshot url
                 if source == 'wyze':
@@ -1971,8 +2036,16 @@ def xbox_status():
             if overlay_cfg.get('enabled'):
                 expected_token = get_overlay_token_from_config(cfg)
                 header_token = request.headers.get('X-Overlay-Token')
-                if header_token != expected_token:
-                    return 'Invalid token', 403
+                body_bytes = request.get_data() or b''
+                if expected_token and header_token and header_token == expected_token:
+                    pass
+                else:
+                    # Try overlay signature if configured
+                    if overlay_cfg.get('hmac_enabled') and overlay_cfg.get('hmac_secret'):
+                        if not verify_hmac(body_bytes, overlay_cfg.get('hmac_secret')):
+                            return 'Invalid signature', 403
+                    else:
+                        return 'Invalid token', 403
             else:
                 # If no overlay and no service mapping, reject
                 return 'No service configured', 403
@@ -2202,7 +2275,15 @@ def save_advanced_config():
             config['services']['konnected'] = {}
         config['services']['konnected']['enabled'] = 'konnected_enabled' in request.form
         config['services']['konnected']['webhook_token'] = request.form.get('konnected_webhook_token', '').strip() or config['services']['konnected'].get('webhook_token', '')
-        save_config(config)
+        # HMAC settings
+        config['overlay']['hmac_enabled'] = 'overlay_hmac_enabled' in request.form
+        config['overlay']['hmac_secret'] = request.form.get('overlay_hmac_secret', '').strip()
+        config['services']['wyze']['hmac_enabled'] = 'wyze_hmac_enabled' in request.form
+        config['services']['wyze']['hmac_secret'] = request.form.get('wyze_hmac_secret', '').strip()
+        config['services']['konnected']['hmac_enabled'] = 'konnected_hmac_enabled' in request.form
+        config['services']['konnected']['hmac_secret'] = request.form.get('konnected_hmac_secret', '').strip()
+        config['services']['xbox']['hmac_enabled'] = 'xbox_hmac_enabled' in request.form
+        config['services']['xbox']['hmac_secret'] = request.form.get('xbox_hmac_secret', '').strip()
         flash('success', 'Advanced configuration saved successfully!')
         def restart_process(process_name, stop_func, start_func, check_func):
             max_wait_time = 10

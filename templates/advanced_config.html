@@ -269,6 +269,15 @@
                         <label for="wyze_webhook_token">Wyze webhook token</label>
                         <input type="text" id="wyze_webhook_token" name="wyze_webhook_token"
                             value="{{ config.services.wyze.webhook_token }}">
+                        <label for="wyze_webhook_hmac_enabled">Wyze HMAC signature required</label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="wyze_webhook_hmac_enabled" name="wyze_webhook_hmac_enabled" {% if
+                                config.services.wyze.get('webhook_hmac_enabled') %}checked{% endif %}>
+                            <label for="wyze_webhook_hmac_enabled">Require HMAC (sha256)</label>
+                        </div>
+                        <label for="wyze_webhook_hmac_secret">Wyze Webhook HMAC secret</label>
+                        <input type="password" id="wyze_webhook_hmac_secret" name="wyze_webhook_hmac_secret"
+                            value="{{ config.services.wyze.get('webhook_hmac_secret', '') }}">
                     </div>
                     <div class="form-group">
                         <div class="toggle-switch">
@@ -279,6 +288,16 @@
                         <label for="konnected_webhook_token">Konnected webhook token</label>
                         <input type="text" id="konnected_webhook_token" name="konnected_webhook_token"
                             value="{{ config.services.konnected.webhook_token }}">
+                        <label for="konnected_webhook_hmac_enabled">Konnected HMAC signature required</label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="konnected_webhook_hmac_enabled"
+                                name="konnected_webhook_hmac_enabled" {% if
+                                config.services.konnected.get('webhook_hmac_enabled') %}checked{% endif %}>
+                            <label for="konnected_webhook_hmac_enabled">Require HMAC (sha256)</label>
+                        </div>
+                        <label for="konnected_webhook_hmac_secret">Konnected Webhook HMAC secret</label>
+                        <input type="password" id="konnected_webhook_hmac_secret" name="konnected_webhook_hmac_secret"
+                            value="{{ config.services.konnected.get('webhook_hmac_secret', '') }}">
                     </div>
                     <div class="form-group">
                         <div class="toggle-switch">
@@ -292,6 +311,17 @@
                         <label for="xbox_client_secret">Xbox client secret</label>
                         <input type="text" id="xbox_client_secret" name="xbox_client_secret"
                             value="{{ config.services.xbox.client_secret }}">
+                        <div class="form-group">
+                            <label for="xbox_webhook_hmac_enabled">Xbox webhook HMAC required</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="xbox_webhook_hmac_enabled" name="xbox_webhook_hmac_enabled"
+                                    {% if config.services.xbox.get('webhook_hmac_enabled') %}checked{% endif %}>
+                                <label for="xbox_webhook_hmac_enabled">Require HMAC (sha256) for Xbox webhooks</label>
+                            </div>
+                            <label for="xbox_webhook_hmac_secret">Xbox webhook HMAC secret</label>
+                            <input type="password" id="xbox_webhook_hmac_secret" name="xbox_webhook_hmac_secret"
+                                value="{{ config.services.xbox.get('webhook_hmac_secret', '') }}">
+                        </div>
                         <label for="xbox_poll_interval">Xbox poll interval (s)</label>
                         <input type="number" id="xbox_poll_interval" name="xbox_poll_interval"
                             value="{{ config.services.xbox.poll_interval }}" min="10">
@@ -587,6 +617,18 @@
                                     <label for="overlay_event_device_notify">Device notifications</label>
                                 </div>
                                 <small>Control which events are posted to the overlay</small>
+                            </div>
+                            <div class="form-group">
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="overlay_hmac_enabled" name="overlay_hmac_enabled" {% if
+                                        config.overlay.get('hmac_enabled') %}checked{% endif %}>
+                                    <label for="overlay_hmac_enabled">Enable HMAC Signature Validation</label>
+                                </div>
+                                <label for="overlay_hmac_secret">Overlay HMAC secret</label>
+                                <input type="password" id="overlay_hmac_secret" name="overlay_hmac_secret"
+                                    value="{{ config.overlay.get('hmac_secret', '') }}">
+                                <small>Optional HMAC secret used to validate overlay posts. Input is hidden for
+                                    security.</small>
                             </div>
                             <div class="toggle-switch">
                                 <input type="checkbox" id="time_display" name="time_display" {% if
