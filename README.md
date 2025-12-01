@@ -2,6 +2,8 @@
 
 Raspberry Pi-based media & status display with a Flask web UI, Spotify + Last.fm integration, secure overlay events (SSE), device/web service webhooks (Wyze, Konnected, Xbox), notifications, and small display support (Framebuffer TFT, ST7789, Waveshare e-paper). Includes performance-focused HUD with caching, process/thread offloading, and token / HMAC protection.
 
+> Supported OS: Debian Bookworm only (Raspberry Pi OS based). macOS and other platforms are not supported.
+
 ## 🚀 Highlights
 
 - Multi-screen HUD: Weather, Spotify Now Playing, Clock (album / weather / solid backgrounds), E-Paper optimized layout
@@ -25,7 +27,7 @@ Raspberry Pi-based media & status display with a Flask web UI, Spotify + Last.fm
 
 ## 📦 Installation (Raspberry Pi)
 
-Headless Raspberry Pi OS Lite is recommended (desktop not required). A detailed checklist is in `HEADLESS_SETUP.md`.
+Headless Raspberry Pi OS Lite (Debian Bookworm) is recommended (desktop not required). A detailed checklist is in `HEADLESS_SETUP.md`.
 
 ### Prerequisites
 
@@ -79,7 +81,7 @@ Optional (DMA fbcp driver for some SPI TFTs):
 sudo make setup-fbcp
 ```
 
-### Local Development (macOS / Linux Desktop)
+### Local Development (Debian Bookworm)
 
 ```bash
 python3 -m venv venv

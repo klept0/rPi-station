@@ -70,7 +70,15 @@ sync-code:
 	sudo chown $$USER:$$USER $(PROJECT_DIR)
 	@if command -v rsync >/dev/null 2>&1; then \
 		echo "Using rsync for efficient sync"; \
-		rsync -a --delete --exclude 'venv/' --exclude '.git/' --exclude 'LCD-show/' ./ $(PROJECT_DIR)/; \
+		rsync -a --delete \
+			--exclude 'venv/' \
+			--exclude '.git/' \
+			--exclude '.github/' \
+			--exclude 'LCD-show/' \
+			--exclude 'benchmarks/' \
+			--exclude 'screenshots/' \
+			--exclude 'tests/' \
+			./ $(PROJECT_DIR)/; \
 	else \
 		echo "rsync not found; falling back to cp -r (no delete)"; \
 		cp -r . $(PROJECT_DIR)/; \
